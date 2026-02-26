@@ -1,0 +1,111 @@
+=== PROTOCOLO V380 - ANÁLISIS DE CAPTURA REAL ===
+
+Fecha de captura: 24 Feb 2026
+Herramienta: PCAPdroid
+Análisis: Paquetes de control del protocolo V380
+
+=== ESTRUCTURA GENERAL DEL PAQUETE ===
+
+Offset  | Campo           | Tamaño | Descripción
+--------|-----------------|--------|----------------------------------
+0x0000  | Magic Bytes     | 4      | Identificador del protocolo V380
+0x0004  | Command         | 4      | Comando y sub-comando
+0x0008  | Reserved        | 4      | Bytes reservados (usualmente 0x00)
+0x000C  | Payload Length  | 4      | Longitud del payload (little-endian)
+0x0010  | Payload         | N      | Datos del comando (variable)
+
+=== MAGIC BYTES ===
+
+Hex: 18 08 03 38
+Descripción: Identificador único del protocolo V380
+Aparece al inicio de TODOS los paquetes V380
+
+=== COMANDO DE DESCUBRIMIENTO (DISCOVERY) ===
+
+Puerto: 32108 UDP
+Tipo: Broadcast (255.255.255.255)
+
+Paquete completo:
+18 08 03 38 | 01 02 02 00 | 00 00 00 00 | 00 00 00 00
+^^^^^^^^^^^   ^^^^^^^^^^^   ^^^^^^^^^^^   ^^^^^^^^^^^
+Magic Bytes   Command       Reserved      Payload Len
+
+Desglose del comando:
+- Byte 0 (0x01): Versión o tipo de mensaje
+- Byte 1 (0x02): Comando principal (0x02 = Discovery)
+- Byte 2 (0x02): Sub-comando
+- Byte 3 (0x00): Flags
+
+Payload Length: 0x00000000 (0 bytes - sin payload para discovery)
+
+=== RESPUESTA DE DESCUBRIMIENTO ===
+
+Paquete ejemplo capturado:
+18 08 03 38 | 01 02 02 00 | 00 00 00 00 | 80 00 00 00 | [128 bytes de datos]
+                                          ^^^^^^^^^^^
+                                          Payload: 128 bytes
+
+Estructura del payload (pendiente de análisis completo):
+- Offset 0x10-0x1F: Posiblemente Device ID o identificador único
+- Offset 0x20+: Información de la cámara (modelo, MAC, etc.)
+
+Nota: Los datos del payload parecen estar codificados o encriptados.
+
+=== OTROS PAQUETES CAPTURADOS ===
+
+Paquete 2:
+18 08 03 38 | 01 02 02 00 | 00 00 00 00 | 50 00 00 00
+Payload: 80 bytes (0x50)
+
+Paquete 3:
+18 08 03 38 | 01 02 02 00 | 00 00 00 00 | 90 00 00 00
+Payload: 144 bytes (0x90)
+
+Paquete 4:
+18 08 03 38 | 01 02 02 00 | 00 00 00 00 | 60 00 00 00
+Payload: 96 bytes (0x60)
+
+Observación: Todos usan el mismo comando (01 02 02 00) pero con diferentes
+longitudes de payload, sugiriendo diferentes tipos de respuesta o información.
+
+=== PENDIENTE DE CAPTURA ===
+
+1. LOGIN PACKET
+   - Puerto: 32108 TCP
+   - Comando: Desconocido (probablemente 0x01 0x03 o similar)
+   - Payload: Username + Password
+
+2. START STREAM
+   - Puerto: 32108 TCP
+   - Comando: Desconocido
+   - Payload: Tipo de stream (main/sub)
+
+3. HEARTBEAT
+   - Comando: Desconocido
+   - Frecuencia: Cada X segundos
+
+4. VIDEO DATA
+   - Formato: H.264 o H.265
+   - Encapsulación: Probablemente en paquetes V380 con header
+
+=== PRÓXIMOS PASOS ===
+
+1. ✅ Actualizar BuildDiscoveryPacket() con magic bytes reales
+2. ✅ Actualizar ParseDiscoveryResponse() para verificar magic bytes
+3. ⏳ Capturar paquete de LOGIN (conectar desde app móvil)
+4. ⏳ Capturar paquete de START STREAM
+5. ⏳ Decodificar payload de respuesta de discovery
+6. ⏳ Implementar decodificación de video
+
+=== NOTAS TÉCNICAS ===
+
+- Endianness: Little-endian para longitudes
+- Puerto: 32108 (UDP para discovery, TCP para comandos/stream)
+- Protocolo: Propietario, no documentado públicamente
+- Encriptación: Posible en el payload (pendiente de confirmar)
+
+=== REFERENCIAS ===
+
+- Captura realizada con PCAPdroid en Android
+- Análisis en Wireshark
+- Código actualizado en: V380Viewer/Services/V380Discovery.cs

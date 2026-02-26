@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "dgSpecHash": "diQEzvfZYoo=",
+  "success": true,
+  "projectFilePath": "F:\\Apps\\Camms\\V380Viewer\\V380Viewer.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Just\\.nuget\\packages\\libvlcsharp\\3.8.5\\libvlcsharp.3.8.5.nupkg.sha512",
+    "C:\\Users\\Just\\.nuget\\packages\\libvlcsharp.wpf\\3.8.5\\libvlcsharp.wpf.3.8.5.nupkg.sha512",
+    "C:\\Users\\Just\\.nuget\\packages\\microsoft.win32.systemevents\\8.0.0\\microsoft.win32.systemevents.8.0.0.nupkg.sha512",
+    "C:\\Users\\Just\\.nuget\\packages\\system.drawing.common\\8.0.0\\system.drawing.common.8.0.0.nupkg.sha512",
+    "C:\\Users\\Just\\.nuget\\packages\\videolan.libvlc.windows\\3.0.20\\videolan.libvlc.windows.3.0.20.nupkg.sha512"
+  ],
+  "logs": []
+}
