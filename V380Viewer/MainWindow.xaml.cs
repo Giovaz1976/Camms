@@ -17,7 +17,7 @@ namespace V380Viewer
         private readonly V380Discovery _discovery;
         private LibVLC? _libVLC;
         private List<CameraView> _cameraViews = new List<CameraView>();
-        private int _currentLayout = 1; // 1, 4, or 9
+        private int _currentLayout = 1; // 1, 2, 4, or 9
         
         public MainWindow()
         {
@@ -134,8 +134,8 @@ namespace V380Viewer
             VideoGrid.ColumnDefinitions.Clear();
             _cameraViews.Clear();
             
-            int rows = gridSize == 1 ? 1 : (gridSize == 4 ? 2 : 3);
-            int cols = gridSize == 1 ? 1 : (gridSize == 4 ? 2 : 3);
+            int rows = gridSize == 1 ? 1 : (gridSize == 2 ? 1 : (gridSize == 4 ? 2 : 3));
+            int cols = gridSize == 1 ? 1 : (gridSize == 2 ? 2 : (gridSize == 4 ? 2 : 3));
             
             // Crear filas y columnas
             for (int i = 0; i < rows; i++)
@@ -151,7 +151,7 @@ namespace V380Viewer
                 {
                     var border = new Border
                     {
-                        Background = new SolidColorBrush(Colors.Black),
+                        Background = new SolidColorBrush(Color.FromRgb(37, 37, 37)), // #252525
                         BorderBrush = new SolidColorBrush(Color.FromRgb(52, 73, 94)),
                         BorderThickness = new Thickness(1),
                         Margin = new Thickness(2)
@@ -177,6 +177,7 @@ namespace V380Viewer
         private void UpdateLayoutButtons()
         {
             BtnLayout1.Background = new SolidColorBrush(_currentLayout == 1 ? Color.FromRgb(39, 174, 96) : Color.FromRgb(52, 73, 94));
+            BtnLayout2.Background = new SolidColorBrush(_currentLayout == 2 ? Color.FromRgb(39, 174, 96) : Color.FromRgb(52, 73, 94));
             BtnLayout4.Background = new SolidColorBrush(_currentLayout == 4 ? Color.FromRgb(39, 174, 96) : Color.FromRgb(52, 73, 94));
             BtnLayout9.Background = new SolidColorBrush(_currentLayout == 9 ? Color.FromRgb(39, 174, 96) : Color.FromRgb(52, 73, 94));
         }
@@ -213,6 +214,12 @@ namespace V380Viewer
             LstCameras.SelectedItems.Clear();
         }
         
+        private void BtnLayout2_Click(object sender, RoutedEventArgs e)
+        {
+            SetupGridLayout(2);
+            LstCameras.SelectedItems.Clear();
+        }
+        
         private void BtnLayout4_Click(object sender, RoutedEventArgs e)
         {
             SetupGridLayout(4);
@@ -223,6 +230,12 @@ namespace V380Viewer
         {
             SetupGridLayout(9);
             LstCameras.SelectedItems.Clear();
+        }
+        
+        private void BtnExit_Click(object sender, RoutedEventArgs e)
+        {
+            // Cerrar la aplicación
+            Close();
         }
 
         protected override void OnClosed(EventArgs e)
