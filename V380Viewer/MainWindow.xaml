@@ -36,12 +36,18 @@
                     <Button x:Name="BtnLayout1" Content="1" Width="35" Height="35" Margin="2" 
                             Click="BtnLayout1_Click" Background="#27AE60" Foreground="White" 
                             BorderThickness="0" FontWeight="Bold" ToolTip="Single camera"/>
+                    <Button x:Name="BtnLayout2" Content="2" Width="35" Height="35" Margin="2" 
+                            Click="BtnLayout2_Click" Background="#34495E" Foreground="White" 
+                            BorderThickness="0" FontWeight="Bold" ToolTip="2 cameras side by side"/>
                     <Button x:Name="BtnLayout4" Content="4" Width="35" Height="35" Margin="2" 
                             Click="BtnLayout4_Click" Background="#34495E" Foreground="White" 
                             BorderThickness="0" FontWeight="Bold" ToolTip="2x2 grid"/>
                     <Button x:Name="BtnLayout9" Content="9" Width="35" Height="35" Margin="2" 
                             Click="BtnLayout9_Click" Background="#34495E" Foreground="White" 
                             BorderThickness="0" FontWeight="Bold" ToolTip="3x3 grid"/>
+                    <Button x:Name="BtnExit" Content="✕ Exit" Width="80" Height="35" Margin="15,2,2,2" 
+                            Click="BtnExit_Click" Background="#E74C3C" Foreground="White" 
+                            BorderThickness="0" FontWeight="Bold" ToolTip="Close application"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -83,7 +89,7 @@
             </Border>
             
             <!-- Video Display Grid -->
-            <Border Grid.Column="1" Background="Black">
+            <Border Grid.Column="1" Background="#252525">
                 <Grid x:Name="VideoGrid">
                     <TextBlock x:Name="TxtVideoStatus" 
                                Text="Select one or more cameras to start viewing"
