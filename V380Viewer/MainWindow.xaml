@@ -27,6 +27,10 @@
                             Width="120" Height="35" Margin="5" Click="BtnScanCameras_Click"
                             Background="#3498DB" Foreground="White" BorderThickness="0"
                             FontWeight="Bold" Cursor="Hand"/>
+                    <Button x:Name="BtnAddCamera" Content="➕ Add Camera" 
+                            Width="110" Height="35" Margin="5" Click="BtnAddCamera_Click"
+                            Background="#16A085" Foreground="White" BorderThickness="0"
+                            FontWeight="Bold" Cursor="Hand"/>
                     <TextBlock x:Name="TxtStatus" Text="Ready" VerticalAlignment="Center" 
                                Margin="15,0,0,0" Foreground="White" FontSize="14"/>
                 </StackPanel>

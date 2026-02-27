@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -15,15 +17,19 @@ namespace V380Viewer
     public partial class MainWindow : Window
     {
         private readonly V380Discovery _discovery;
+        private readonly OnvifDiscovery _onvifDiscovery;
         private LibVLC? _libVLC;
         private List<CameraView> _cameraViews = new List<CameraView>();
         private int _currentLayout = 1; // 1, 2, 4, or 9
+        private CancellationTokenSource? _scanCancellationTokenSource;
         
         public MainWindow()
         {
             InitializeComponent();
             _discovery = new V380Discovery();
             _discovery.CameraDiscovered += OnCameraDiscovered;
+            _onvifDiscovery = new OnvifDiscovery();
+            _onvifDiscovery.CameraDiscovered += OnCameraDiscovered;
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -58,36 +64,153 @@ namespace V380Viewer
 
         private async void BtnScanCameras_Click(object sender, RoutedEventArgs e)
         {
+            // Si ya está escaneando, cancelar
+            if (_scanCancellationTokenSource != null)
+            {
+                _scanCancellationTokenSource.Cancel();
+                return;
+            }
+            
             LstCameras.Items.Clear();
-            TxtStatus.Text = "Scanning network for V380 cameras...";
-            BtnScanCameras.IsEnabled = false;
+            TxtStatus.Text = "Scanning network for ONVIF cameras...";
+            
+            // Cambiar botón a modo "Cancelar"
+            BtnScanCameras.Content = "⏹ Cancel Scan";
+            BtnScanCameras.Background = new SolidColorBrush(Color.FromRgb(231, 76, 60)); // Rojo
+            
+            _scanCancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = _scanCancellationTokenSource.Token;
             
             try
             {
-                // Agregar cámara conocida directamente
-                var knownCamera = new CameraInfo
+                // Usar ONVIF Discovery para encontrar cámaras automáticamente
+                var cameras = await _onvifDiscovery.DiscoverCamerasAsync(cancellationToken);
+                
+                if (!cancellationToken.IsCancellationRequested)
                 {
-                    Name = "V380 Camera (Direct)",
-                    IpAddress = "192.168.1.81",
-                    Port = 32108,
-                    DeviceId = "Direct-Connection"
-                };
-                LstCameras.Items.Add(knownCamera);
-                
-                // También intentar discovery por si acaso
-                await _discovery.ScanNetworkAsync();
-                
-                TxtStatus.Text = $"Scan complete. Found {LstCameras.Items.Count} camera(s)";
+                    foreach (var camera in cameras)
+                    {
+                        LstCameras.Items.Add(camera);
+                    }
+                    
+                    TxtStatus.Text = $"Scan complete. Found {LstCameras.Items.Count} camera(s)";
+                    
+                    if (LstCameras.Items.Count == 0)
+                    {
+                        TxtStatus.Text = "No cameras found. Try 'Add Camera' to add manually.";
+                    }
+                }
+                else
+                {
+                    TxtStatus.Text = "Scan cancelled by user.";
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                TxtStatus.Text = "Scan cancelled.";
             }
             catch (Exception ex)
             {
-                TxtStatus.Text = $"Error: {ex.Message}";
-                MessageBox.Show($"Scan failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    TxtStatus.Text = $"Error: {ex.Message}";
+                    System.Diagnostics.Debug.WriteLine($"Scan error: {ex}");
+                    MessageBox.Show($"Scan failed: {ex.Message}\n\nDetails: {ex.GetType().Name}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                else
+                {
+                    TxtStatus.Text = "Scan cancelled.";
+                }
             }
             finally
             {
-                BtnScanCameras.IsEnabled = true;
+                // Restaurar botón a modo "Escanear"
+                BtnScanCameras.Content = "🔍 Scan Cameras";
+                BtnScanCameras.Background = new SolidColorBrush(Color.FromRgb(52, 152, 219)); // Azul
+                _scanCancellationTokenSource?.Dispose();
+                _scanCancellationTokenSource = null;
             }
+        }
+        
+        private void BtnAddCamera_Click(object sender, RoutedEventArgs e)
+        {
+            // Crear ventana de diálogo simple para ingresar IP
+            var dialog = new Window
+            {
+                Title = "Add Camera Manually",
+                Width = 400,
+                Height = 250,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize
+            };
+            
+            var grid = new Grid { Margin = new Thickness(20) };
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            
+            var lblIp = new TextBlock { Text = "Camera IP Address:", Margin = new Thickness(0, 0, 0, 5) };
+            var txtIp = new TextBox { Margin = new Thickness(0, 0, 0, 15), Padding = new Thickness(5) };
+            
+            var lblName = new TextBlock { Text = "Camera Name (optional):", Margin = new Thickness(0, 0, 0, 5) };
+            var txtName = new TextBox { Margin = new Thickness(0, 0, 0, 15), Padding = new Thickness(5) };
+            
+            var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var btnOk = new Button { Content = "Add", Width = 80, Height = 30, Margin = new Thickness(5, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(52, 152, 219)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0) };
+            var btnCancel = new Button { Content = "Cancel", Width = 80, Height = 30, Margin = new Thickness(5, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(149, 165, 166)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0) };
+            
+            btnOk.Click += (s, args) =>
+            {
+                if (string.IsNullOrWhiteSpace(txtIp.Text))
+                {
+                    MessageBox.Show("Please enter an IP address.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                // Validar formato de IP
+                if (!System.Net.IPAddress.TryParse(txtIp.Text.Trim(), out _))
+                {
+                    MessageBox.Show("Invalid IP address format.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                var camera = new CameraInfo
+                {
+                    Name = string.IsNullOrWhiteSpace(txtName.Text) ? $"Camera ({txtIp.Text.Trim()})" : txtName.Text.Trim(),
+                    IpAddress = txtIp.Text.Trim(),
+                    Port = 554,
+                    DeviceId = $"Manual-{txtIp.Text.Trim()}"
+                };
+                
+                LstCameras.Items.Add(camera);
+                TxtStatus.Text = $"Camera added: {camera.Name}";
+                dialog.DialogResult = true;
+                dialog.Close();
+            };
+            
+            btnCancel.Click += (s, args) => { dialog.Close(); };
+            
+            btnPanel.Children.Add(btnCancel);
+            btnPanel.Children.Add(btnOk);
+            
+            Grid.SetRow(lblIp, 0);
+            Grid.SetRow(txtIp, 1);
+            Grid.SetRow(lblName, 2);
+            Grid.SetRow(txtName, 3);
+            Grid.SetRow(btnPanel, 5);
+            
+            grid.Children.Add(lblIp);
+            grid.Children.Add(txtIp);
+            grid.Children.Add(lblName);
+            grid.Children.Add(txtName);
+            grid.Children.Add(btnPanel);
+            
+            dialog.Content = grid;
+            dialog.ShowDialog();
         }
 
         private void OnCameraDiscovered(object? sender, CameraInfo camera)
@@ -129,10 +252,25 @@ namespace V380Viewer
         private void SetupGridLayout(int gridSize)
         {
             _currentLayout = gridSize;
+            
+            // Limpiar vistas anteriores
+            foreach (var view in _cameraViews)
+            {
+                view.MediaPlayer?.Stop();
+                view.MediaPlayer?.Dispose();
+            }
+            
             VideoGrid.Children.Clear();
             VideoGrid.RowDefinitions.Clear();
             VideoGrid.ColumnDefinitions.Clear();
             _cameraViews.Clear();
+            
+            // Verificar que LibVLC esté inicializado
+            if (_libVLC == null)
+            {
+                System.Diagnostics.Debug.WriteLine("LibVLC no está inicializado");
+                return;
+            }
             
             int rows = gridSize == 1 ? 1 : (gridSize == 2 ? 1 : (gridSize == 4 ? 2 : 3));
             int cols = gridSize == 1 ? 1 : (gridSize == 2 ? 2 : (gridSize == 4 ? 2 : 3));
@@ -157,16 +295,35 @@ namespace V380Viewer
                         Margin = new Thickness(2)
                     };
                     
-                    var videoView = new VideoView();
-                    var mediaPlayer = new VLCMediaPlayer(_libVLC);
-                    videoView.MediaPlayer = mediaPlayer;
-                    
-                    border.Child = videoView;
-                    Grid.SetRow(border, row);
-                    Grid.SetColumn(border, col);
-                    VideoGrid.Children.Add(border);
-                    
-                    _cameraViews.Add(new CameraView(new CameraInfo(), mediaPlayer));
+                    try
+                    {
+                        var videoView = new VideoView();
+                        var mediaPlayer = new VLCMediaPlayer(_libVLC);
+                        videoView.MediaPlayer = mediaPlayer;
+                        
+                        border.Child = videoView;
+                        Grid.SetRow(border, row);
+                        Grid.SetColumn(border, col);
+                        VideoGrid.Children.Add(border);
+                        
+                        _cameraViews.Add(new CameraView(new CameraInfo(), mediaPlayer));
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error creating MediaPlayer: {ex.Message}");
+                        // Agregar un placeholder en caso de error
+                        var errorText = new TextBlock
+                        {
+                            Text = "Error",
+                            Foreground = new SolidColorBrush(Colors.Red),
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+                        border.Child = errorText;
+                        Grid.SetRow(border, row);
+                        Grid.SetColumn(border, col);
+                        VideoGrid.Children.Add(border);
+                    }
                 }
             }
             
