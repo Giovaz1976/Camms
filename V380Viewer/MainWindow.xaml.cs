@@ -23,6 +23,8 @@ namespace V380Viewer
         private int _currentLayout = 1; // 1, 2, 4, or 9
         private CancellationTokenSource? _scanCancellationTokenSource;
         private StreamQuality _globalStreamQuality = StreamQuality.Main; // HD por defecto
+        private readonly OnvifPtzService _ptzService;
+        private CameraInfo? _activePtzCamera; // Cámara actualmente controlada por PTZ
         
         public MainWindow()
         {
@@ -31,6 +33,13 @@ namespace V380Viewer
             _discovery.CameraDiscovered += OnCameraDiscovered;
             _onvifDiscovery = new OnvifDiscovery();
             _onvifDiscovery.CameraDiscovered += OnCameraDiscovered;
+            _ptzService = new OnvifPtzService();
+            
+            // Actualizar texto de velocidad PTZ cuando cambia el slider
+            SliderPtzSpeed.ValueChanged += (s, e) => 
+            {
+                TxtPtzSpeed.Text = $"Speed: {SliderPtzSpeed.Value:F1}";
+            };
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -438,15 +447,473 @@ namespace V380Viewer
                 StartCamera(_cameraViews[i], selectedCameras[i]);
             }
         }
+        
+        // ==================== PTZ CONTROLS ====================
+        
+        private void BtnShowPtz_Click(object sender, RoutedEventArgs e)
+        {
+            // Click derecho para configurar credenciales
+            if (System.Windows.Input.Mouse.RightButton == System.Windows.Input.MouseButtonState.Pressed)
+            {
+                ConfigurePtzCredentials();
+            }
+            else
+            {
+                TogglePtzPanel();
+            }
+        }
+        
+        private void ConfigurePtzCredentials()
+        {
+            var selectedCameras = LstCameras.SelectedItems.Cast<CameraInfo>().ToList();
+            if (selectedCameras.Count == 0)
+            {
+                MessageBox.Show("Please select a camera first.", "PTZ Credentials", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            
+            var camera = selectedCameras[0];
+            
+            var inputDialog = new Window
+            {
+                Title = $"PTZ Credentials - {camera.Name}",
+                Width = 400,
+                Height = 280,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)),
+                ResizeMode = ResizeMode.NoResize
+            };
+            
+            // Crear StackPanel principal
+            var mainPanel = new StackPanel { Margin = new Thickness(20) };
+            
+            // Username
+            var lblUsername = new TextBlock 
+            { 
+                Text = "Username:", 
+                Foreground = Brushes.White, 
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtUsername = new TextBox 
+            { 
+                Text = camera.Username, 
+                Height = 32,
+                Padding = new Thickness(8),
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            
+            // Password
+            var lblPassword = new TextBlock 
+            { 
+                Text = "Password:", 
+                Foreground = Brushes.White, 
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtPassword = new TextBox 
+            { 
+                Text = camera.Password,  // Usar TextBox normal para ver la contraseña
+                Height = 32,
+                Padding = new Thickness(8),
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            
+            // Hint
+            var lblHint = new TextBlock 
+            { 
+                Text = "Common passwords: (empty), admin, 888888", 
+                Foreground = new SolidColorBrush(Color.FromRgb(149, 165, 166)), 
+                FontSize = 11,
+                FontStyle = FontStyles.Italic,
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            
+            // Botones
+            var btnPanel = new StackPanel 
+            { 
+                Orientation = Orientation.Horizontal, 
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            
+            var btnOk = new Button 
+            { 
+                Content = "Save", 
+                Width = 90, 
+                Height = 35, 
+                Margin = new Thickness(0, 0, 10, 0), 
+                Background = new SolidColorBrush(Color.FromRgb(39, 174, 96)), 
+                Foreground = Brushes.White, 
+                BorderThickness = new Thickness(0),
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            
+            var btnCancel = new Button 
+            { 
+                Content = "Cancel", 
+                Width = 90, 
+                Height = 35, 
+                Background = new SolidColorBrush(Color.FromRgb(231, 76, 60)), 
+                Foreground = Brushes.White, 
+                BorderThickness = new Thickness(0),
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            
+            btnOk.Click += (s, e) => 
+            { 
+                camera.Username = txtUsername.Text; 
+                camera.Password = txtPassword.Text; 
+                inputDialog.DialogResult = true; 
+            };
+            
+            btnCancel.Click += (s, e) => 
+            { 
+                inputDialog.DialogResult = false; 
+            };
+            
+            btnPanel.Children.Add(btnOk);
+            btnPanel.Children.Add(btnCancel);
+            
+            // Agregar todo al panel principal
+            mainPanel.Children.Add(lblUsername);
+            mainPanel.Children.Add(txtUsername);
+            mainPanel.Children.Add(lblPassword);
+            mainPanel.Children.Add(txtPassword);
+            mainPanel.Children.Add(lblHint);
+            mainPanel.Children.Add(btnPanel);
+            
+            inputDialog.Content = mainPanel;
+            
+            if (inputDialog.ShowDialog() == true)
+            {
+                TxtStatus.Text = $"Credentials updated: {camera.Username} / {(string.IsNullOrEmpty(camera.Password) ? "(empty)" : "***")}";
+                System.Diagnostics.Debug.WriteLine($"PTZ Credentials updated for {camera.Name}: {camera.Username} / {camera.Password}");
+            }
+        }
+        
+        private void BtnTogglePtz_Click(object sender, RoutedEventArgs e)
+        {
+            TogglePtzPanel();
+        }
+        
+        private void TogglePtzPanel()
+        {
+            if (PtzPanel.Visibility == Visibility.Collapsed)
+            {
+                // Verificar que haya una cámara seleccionada
+                var selectedCameras = LstCameras.SelectedItems.Cast<CameraInfo>().ToList();
+                if (selectedCameras.Count == 0)
+                {
+                    MessageBox.Show("Please select a camera first to use PTZ controls.", "No Camera Selected", 
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                
+                // Usar la primera cámara seleccionada para PTZ
+                _activePtzCamera = selectedCameras[0];
+                PtzPanel.Visibility = Visibility.Visible;
+                BtnShowPtz.Content = "🎮 PTZ ✓";
+                BtnShowPtz.Background = new SolidColorBrush(Color.FromRgb(46, 204, 113)); // Verde
+                BtnTogglePtz.Content = "Hide PTZ";
+                TxtStatus.Text = $"PTZ control active for {_activePtzCamera.Name}";
+            }
+            else
+            {
+                PtzPanel.Visibility = Visibility.Collapsed;
+                BtnShowPtz.Content = "🎮 PTZ";
+                BtnShowPtz.Background = new SolidColorBrush(Color.FromRgb(142, 68, 173)); // Morado
+                _activePtzCamera = null;
+                TxtStatus.Text = "PTZ control hidden";
+            }
+        }
+        
+        private async void BtnPtzUp_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            await SendPtzCommand(0, (float)SliderPtzSpeed.Value, 0);
+        }
+        
+        private async void BtnPtzDown_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            await SendPtzCommand(0, -(float)SliderPtzSpeed.Value, 0);
+        }
+        
+        private async void BtnPtzLeft_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            await SendPtzCommand(-(float)SliderPtzSpeed.Value, 0, 0);
+        }
+        
+        private async void BtnPtzRight_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            await SendPtzCommand((float)SliderPtzSpeed.Value, 0, 0);
+        }
+        
+        private async void BtnZoomIn_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            await SendPtzCommand(0, 0, (float)SliderPtzSpeed.Value);
+        }
+        
+        private async void BtnZoomOut_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            await SendPtzCommand(0, 0, -(float)SliderPtzSpeed.Value);
+        }
+        
+        private async void BtnPtz_MouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            // Detener movimiento PTZ
+            if (_activePtzCamera != null)
+            {
+                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password);
+            }
+        }
+        
+        private async void BtnPtzHome_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activePtzCamera != null)
+            {
+                // Ir a preset "Home" (preset 1 es común para home)
+                var success = await _ptzService.GotoPresetAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, "1");
+                TxtStatus.Text = success ? "Returning to home position..." : "Failed to return home";
+            }
+        }
+        
+        private void BtnDebugPtz_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activePtzCamera == null)
+            {
+                MessageBox.Show("No active PTZ camera selected.", "PTZ Debug", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
+            var debugInfo = new System.Text.StringBuilder();
+            debugInfo.AppendLine($"Camera: {_activePtzCamera.Name}");
+            debugInfo.AppendLine($"IP: {_activePtzCamera.IpAddress}");
+            debugInfo.AppendLine($"Username: {_activePtzCamera.Username}");
+            debugInfo.AppendLine($"Password: {(string.IsNullOrEmpty(_activePtzCamera.Password) ? "(empty)" : "***")}");
+            debugInfo.AppendLine();
+            debugInfo.AppendLine("=== SOAP Command (RelativeMove Right) ===");
+            debugInfo.AppendLine(@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<s:Envelope xmlns:s=""http://www.w3.org/2003/05/soap-envelope"" xmlns:tptz=""http://www.onvif.org/ver20/ptz/wsdl"" xmlns:tt=""http://www.onvif.org/ver10/schema"">
+    <s:Body>
+        <tptz:RelativeMove>
+            <tptz:ProfileToken>profile_1</tptz:ProfileToken>
+            <tptz:Translation>
+                <tt:PanTilt x=""0.3"" y=""0""/>
+                <tt:Zoom x=""0""/>
+            </tptz:Translation>
+        </tptz:RelativeMove>
+    </s:Body>
+</s:Envelope>");
+            debugInfo.AppendLine();
+            debugInfo.AppendLine("Check Debug Output window for actual responses.");
+            
+            MessageBox.Show(debugInfo.ToString(), "PTZ Debug Info", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        
+        private async void BtnTestPtz_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activePtzCamera == null)
+            {
+                MessageBox.Show("No active PTZ camera selected.", "PTZ Test", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            
+            TxtStatus.Text = "Testing PTZ... Please wait";
+            BtnTestPtz.IsEnabled = false;
+            
+            try
+            {
+                Console.WriteLine($"\n========== PTZ TEST START ==========");
+                Console.WriteLine($"Camera: {_activePtzCamera.Name}");
+                Console.WriteLine($"IP: {_activePtzCamera.IpAddress}");
+                Console.WriteLine($"====================================\n");
+                
+                // Obtener ProfileToken primero
+                Console.WriteLine("Getting ProfileToken...");
+                var profileToken = await _ptzService.GetProfileTokenAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password);
+                
+                if (!string.IsNullOrEmpty(profileToken))
+                {
+                    Console.WriteLine($"✓ ProfileToken obtained: {profileToken}");
+                }
+                else
+                {
+                    Console.WriteLine("✗ Failed to get ProfileToken, using default");
+                }
+                
+                // Test 1: Pequeño movimiento a la derecha
+                Console.WriteLine("Test 1: Moving right...");
+                Console.WriteLine($"Using credentials: {_activePtzCamera.Username} / {(string.IsNullOrEmpty(_activePtzCamera.Password) ? "(empty)" : "***")}");
+                var success1 = await _ptzService.MoveAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, 0.3f, 0, 0);
+                await Task.Delay(1000);
+                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password);
+                
+                await Task.Delay(500);
+                
+                // Test 2: Pequeño movimiento a la izquierda (volver)
+                Console.WriteLine("Test 2: Moving left...");
+                var success2 = await _ptzService.MoveAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, -0.3f, 0, 0);
+                await Task.Delay(1000);
+                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password);
+                
+                Console.WriteLine($"\n========== PTZ TEST END ==========");
+                Console.WriteLine($"Test 1 (Right): {(success1 ? "✓ SUCCESS" : "✗ FAILED")}");
+                Console.WriteLine($"Test 2 (Left): {(success2 ? "✓ SUCCESS" : "✗ FAILED")}");
+                Console.WriteLine($"==================================\n");
+                
+                if (success1 || success2)
+                {
+                    MessageBox.Show(
+                        $"PTZ Test Results:\\n\\n" +
+                        $"Camera: {_activePtzCamera.Name}\\n" +
+                        $"IP: {_activePtzCamera.IpAddress}\\n\\n" +
+                        $"Move Right: {(success1 ? "✓ SUCCESS" : "✗ FAILED")}\\n" +
+                        $"Move Left: {(success2 ? "✓ SUCCESS" : "✗ FAILED")}\\n\\n" +
+                        $"PTZ is working! Check Debug output for details.",
+                        "PTZ Test - Success",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information
+                    );
+                    TxtStatus.Text = "PTZ test completed successfully!";
+                }
+                else
+                {
+                    var result = MessageBox.Show(
+                        $"PTZ Test Failed\\n\\n" +
+                        $"Camera: {_activePtzCamera.Name}\\n" +
+                        $"IP: {_activePtzCamera.IpAddress}\\n" +
+                        $"Credentials: {_activePtzCamera.Username} / {(string.IsNullOrEmpty(_activePtzCamera.Password) ? "(empty)" : "***")}\\n\\n" +
+                        $"Possible reasons:\\n" +
+                        $"• Camera doesn't support PTZ\\n" +
+                        $"• Wrong credentials (401 Unauthorized)\\n" +
+                        $"• PTZ not enabled in camera settings\\n" +
+                        $"• ONVIF not properly configured\\n\\n" +
+                        $"Do you want to configure credentials?\\n" +
+                        $"(Right-click PTZ button to configure)",
+                        "PTZ Test - Failed",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning
+                    );
+                    
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        ConfigurePtzCredentials();
+                    }
+                    TxtStatus.Text = "PTZ test failed - Camera may not support PTZ";
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"PTZ test error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TxtStatus.Text = $"PTZ test error: {ex.Message}";
+            }
+            finally
+            {
+                BtnTestPtz.IsEnabled = true;
+            }
+        }
+        
+        private async Task SendPtzCommand(float panSpeed, float tiltSpeed, float zoomSpeed)
+        {
+            if (_activePtzCamera == null)
+            {
+                TxtStatus.Text = "No active PTZ camera";
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"Sending PTZ command: Pan={panSpeed}, Tilt={tiltSpeed}, Zoom={zoomSpeed}");
+            
+            var success = await _ptzService.MoveAsync(
+                _activePtzCamera.IpAddress, 
+                _activePtzCamera.Username, 
+                _activePtzCamera.Password, 
+                panSpeed, 
+                tiltSpeed, 
+                zoomSpeed
+            );
+            
+            if (success)
+            {
+                TxtStatus.Text = $"PTZ: Moving camera {_activePtzCamera.Name}...";
+            }
+            else
+            {
+                TxtStatus.Text = $"PTZ command failed - Check camera supports PTZ";
+                System.Diagnostics.Debug.WriteLine($"✗ PTZ command failed for {_activePtzCamera.IpAddress}");
+            }
+        }
 
+        private bool _isDisposing = false;
+        
         protected override void OnClosed(EventArgs e)
         {
-            _discovery.Dispose();
-            StopAllCameras();
-            foreach (var view in _cameraViews)
-                view.MediaPlayer?.Dispose();
-            _libVLC?.Dispose();
-            base.OnClosed(e);
+            if (_isDisposing)
+                return;
+                
+            _isDisposing = true;
+            
+            try
+            {
+                // 1. Detener todos los streams primero
+                foreach (var view in _cameraViews)
+                {
+                    try
+                    {
+                        view.MediaPlayer?.Stop();
+                    }
+                    catch { }
+                }
+                
+                // 2. Pequeña pausa
+                System.Threading.Thread.Sleep(200);
+                
+                // 3. Disponer MediaPlayers
+                foreach (var view in _cameraViews)
+                {
+                    try
+                    {
+                        view.MediaPlayer?.Dispose();
+                    }
+                    catch { }
+                }
+                
+                // 4. Limpiar lista
+                _cameraViews.Clear();
+                
+                // 5. NO disponer LibVLC explícitamente - dejar que el GC lo maneje
+                // Esto evita el AccessViolationException
+                _libVLC = null;
+                
+                // 6. Disponer servicios
+                try
+                {
+                    _discovery?.Dispose();
+                }
+                catch { }
+                
+                try
+                {
+                    _ptzService?.Dispose();
+                }
+                catch { }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in OnClosed: {ex.Message}");
+            }
+            finally
+            {
+                base.OnClosed(e);
+            }
         }
     }
 }

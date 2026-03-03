@@ -53,7 +53,11 @@
                     <Button x:Name="BtnLayout9" Content="9" Width="35" Height="35" Margin="2" 
                             Click="BtnLayout9_Click" Background="#34495E" Foreground="White" 
                             BorderThickness="0" FontWeight="Bold" ToolTip="3x3 grid"/>
-                    <Button x:Name="BtnExit" Content="✕ Exit" Width="80" Height="35" Margin="15,2,2,2" 
+                    <Button x:Name="BtnShowPtz" Content="🎮 PTZ" Width="70" Height="35" Margin="15,2,5,2" 
+                            Click="BtnShowPtz_Click" MouseRightButtonDown="BtnShowPtz_Click"
+                            Background="#8E44AD" Foreground="White" 
+                            BorderThickness="0" FontWeight="Bold" ToolTip="Left-click: Show/Hide PTZ | Right-click: Configure credentials"/>
+                    <Button x:Name="BtnExit" Content="✕ Exit" Width="80" Height="35" Margin="5,2,2,2" 
                             Click="BtnExit_Click" Background="#E74C3C" Foreground="White" 
                             BorderThickness="0" FontWeight="Bold" ToolTip="Close application"/>
                 </StackPanel>
@@ -96,15 +100,116 @@
                 </Grid>
             </Border>
             
-            <!-- Video Display Grid -->
-            <Border Grid.Column="1" Background="#252525">
-                <Grid x:Name="VideoGrid">
-                    <TextBlock x:Name="TxtVideoStatus" 
-                               Text="Select one or more cameras to start viewing"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                               Foreground="White" FontSize="16" FontWeight="Bold"/>
-                </Grid>
-            </Border>
+            <!-- Video Display Grid with PTZ Controls -->
+            <Grid Grid.Column="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <!-- Video Display -->
+                <Border Grid.Column="0" Background="#252525">
+                    <Grid x:Name="VideoGrid">
+                        <TextBlock x:Name="TxtVideoStatus" 
+                                   Text="Select one or more cameras to start viewing"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="White" FontSize="16" FontWeight="Bold"/>
+                    </Grid>
+                </Border>
+                
+                <!-- PTZ Control Panel -->
+                <Border Grid.Column="1" Background="#2C3E50" Width="180" 
+                        x:Name="PtzPanel" Visibility="Collapsed">
+                    <StackPanel Margin="10">
+                        <TextBlock Text="PTZ Control" FontWeight="Bold" FontSize="14" 
+                                   Foreground="White" HorizontalAlignment="Center" Margin="0,0,0,15"/>
+                        
+                        <!-- Pan/Tilt Controls -->
+                        <TextBlock Text="Pan/Tilt" FontSize="11" Foreground="#95A5A6" Margin="0,0,0,5"/>
+                        <Grid Height="120" Width="120" HorizontalAlignment="Center" Margin="0,0,0,15">
+                            <!-- Up -->
+                            <Button x:Name="BtnPtzUp" Content="▲" Width="40" Height="40"
+                                    HorizontalAlignment="Center" VerticalAlignment="Top"
+                                    Background="#3498DB" Foreground="White" BorderThickness="0"
+                                    FontSize="18" FontWeight="Bold" Cursor="Hand"
+                                    PreviewMouseDown="BtnPtzUp_MouseDown" 
+                                    PreviewMouseUp="BtnPtz_MouseUp"/>
+                            <!-- Down -->
+                            <Button x:Name="BtnPtzDown" Content="▼" Width="40" Height="40"
+                                    HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                                    Background="#3498DB" Foreground="White" BorderThickness="0"
+                                    FontSize="18" FontWeight="Bold" Cursor="Hand"
+                                    PreviewMouseDown="BtnPtzDown_MouseDown" 
+                                    PreviewMouseUp="BtnPtz_MouseUp"/>
+                            <!-- Left -->
+                            <Button x:Name="BtnPtzLeft" Content="◄" Width="40" Height="40"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Background="#3498DB" Foreground="White" BorderThickness="0"
+                                    FontSize="18" FontWeight="Bold" Cursor="Hand"
+                                    PreviewMouseDown="BtnPtzLeft_MouseDown" 
+                                    PreviewMouseUp="BtnPtz_MouseUp"/>
+                            <!-- Right -->
+                            <Button x:Name="BtnPtzRight" Content="►" Width="40" Height="40"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Background="#3498DB" Foreground="White" BorderThickness="0"
+                                    FontSize="18" FontWeight="Bold" Cursor="Hand"
+                                    PreviewMouseDown="BtnPtzRight_MouseDown" 
+                                    PreviewMouseUp="BtnPtz_MouseUp"/>
+                            <!-- Home/Center -->
+                            <Button x:Name="BtnPtzHome" Content="⊙" Width="35" Height="35"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    Background="#95A5A6" Foreground="White" BorderThickness="0"
+                                    FontSize="16" FontWeight="Bold" Cursor="Hand"
+                                    Click="BtnPtzHome_Click" ToolTip="Return to home position"/>
+                        </Grid>
+                        
+                        <!-- Zoom Controls -->
+                        <TextBlock Text="Zoom" FontSize="11" Foreground="#95A5A6" Margin="0,0,0,5"/>
+                        <Grid Margin="0,0,0,15">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="BtnZoomIn" Content="🔍+" Grid.Column="0" Height="40" Margin="0,0,5,0"
+                                    Background="#27AE60" Foreground="White" BorderThickness="0"
+                                    FontSize="16" FontWeight="Bold" Cursor="Hand"
+                                    PreviewMouseDown="BtnZoomIn_MouseDown" 
+                                    PreviewMouseUp="BtnPtz_MouseUp"/>
+                            <Button x:Name="BtnZoomOut" Content="🔍-" Grid.Column="1" Height="40" Margin="5,0,0,0"
+                                    Background="#E67E22" Foreground="White" BorderThickness="0"
+                                    FontSize="16" FontWeight="Bold" Cursor="Hand"
+                                    PreviewMouseDown="BtnZoomOut_MouseDown" 
+                                    PreviewMouseUp="BtnPtz_MouseUp"/>
+                        </Grid>
+                        
+                        <!-- Speed Control -->
+                        <TextBlock Text="Speed" FontSize="11" Foreground="#95A5A6" Margin="0,0,0,5"/>
+                        <Slider x:Name="SliderPtzSpeed" Minimum="0.1" Maximum="1.0" Value="0.5" 
+                                TickFrequency="0.1" IsSnapToTickEnabled="True"
+                                Margin="0,0,0,5"/>
+                        <TextBlock x:Name="TxtPtzSpeed" Text="Speed: 0.5" FontSize="10" 
+                                   Foreground="#BDC3C7" HorizontalAlignment="Center"/>
+                        
+                        <!-- Test PTZ Button -->
+                        <Button x:Name="BtnTestPtz" Content="🔧 Test PTZ" Height="30" Margin="0,10,0,5"
+                                Background="#3498DB" Foreground="White" BorderThickness="0"
+                                FontSize="11" FontWeight="Bold" Cursor="Hand"
+                                Click="BtnTestPtz_Click" ToolTip="Test if camera supports PTZ"/>
+                        
+                        <!-- Debug PTZ Button -->
+                        <Button x:Name="BtnDebugPtz" Content="🐛 Show SOAP" Height="25" Margin="0,0,0,5"
+                                Background="#95A5A6" Foreground="White" BorderThickness="0"
+                                FontSize="10" FontWeight="Bold" Cursor="Hand"
+                                Click="BtnDebugPtz_Click" ToolTip="Show SOAP commands"/>
+                        
+                        <!-- Toggle PTZ Panel Button -->
+                        <Button x:Name="BtnTogglePtz" Content="Hide PTZ" Height="30" Margin="0,5,0,0"
+                                Background="#E74C3C" Foreground="White" BorderThickness="0"
+                                FontSize="11" FontWeight="Bold" Cursor="Hand"
+                                Click="BtnTogglePtz_Click"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
         </Grid>
         
         <!-- Bottom Status Bar -->

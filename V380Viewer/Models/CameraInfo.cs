@@ -12,5 +12,9 @@ namespace V380Viewer.Models
         public string FirmwareVersion { get; set; } = string.Empty;
         public DateTime DiscoveredAt { get; set; } = DateTime.Now;
         public DateTime LastSeen { get; set; } = DateTime.Now;
+        
+        // Credenciales para ONVIF/PTZ
+        public string Username { get; set; } = "admin";
+        public string Password { get; set; } = "";
     }
 }
