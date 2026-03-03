@@ -22,6 +22,7 @@ namespace V380Viewer
         private List<CameraView> _cameraViews = new List<CameraView>();
         private int _currentLayout = 1; // 1, 2, 4, or 9
         private CancellationTokenSource? _scanCancellationTokenSource;
+        private StreamQuality _globalStreamQuality = StreamQuality.Main; // HD por defecto
         
         public MainWindow()
         {
@@ -339,15 +340,22 @@ namespace V380Viewer
             BtnLayout9.Background = new SolidColorBrush(_currentLayout == 9 ? Color.FromRgb(39, 174, 96) : Color.FromRgb(52, 73, 94));
         }
         
-        private void StartCamera(CameraView cameraView, CameraInfo camera)
+        private void StartCamera(CameraView cameraView, CameraInfo camera, StreamQuality? quality = null)
         {
             try
             {
                 cameraView.Camera = camera;
-                string rtspUrl = $"rtsp://admin:@{camera.IpAddress}/live/ch00_0";
+                
+                // Usar calidad especificada o global
+                var streamQuality = quality ?? _globalStreamQuality;
+                int channel = (int)streamQuality; // 0 = main (HD), 1 = sub (SD)
+                
+                string rtspUrl = $"rtsp://admin:@{camera.IpAddress}/live/ch00_{channel}";
                 var media = new Media(_libVLC, new Uri(rtspUrl));
                 cameraView.CurrentMedia = media;
                 cameraView.MediaPlayer.Play(media);
+                
+                System.Diagnostics.Debug.WriteLine($"Started {camera.Name} with {streamQuality} quality: {rtspUrl}");
             }
             catch (Exception ex)
             {
@@ -393,6 +401,42 @@ namespace V380Viewer
         {
             // Cerrar la aplicación
             Close();
+        }
+        
+        private void BtnQuality_Click(object sender, RoutedEventArgs e)
+        {
+            // Alternar calidad
+            _globalStreamQuality = _globalStreamQuality == StreamQuality.Main 
+                ? StreamQuality.Sub 
+                : StreamQuality.Main;
+            
+            // Actualizar texto del botón
+            BtnQuality.Content = _globalStreamQuality == StreamQuality.Main ? "⚙️ HD" : "⚙️ SD";
+            BtnQuality.Background = new SolidColorBrush(_globalStreamQuality == StreamQuality.Main 
+                ? Color.FromRgb(155, 89, 182)   // Morado para HD
+                : Color.FromRgb(230, 126, 34)); // Naranja para SD
+            
+            // Reiniciar streams activos con nueva calidad
+            RestartActiveStreams();
+            
+            TxtStatus.Text = $"Quality changed to {(_globalStreamQuality == StreamQuality.Main ? "HD (Main Stream)" : "SD (Sub Stream)")}";
+        }
+        
+        private void RestartActiveStreams()
+        {
+            var selectedCameras = LstCameras.SelectedItems.Cast<CameraInfo>().ToList();
+            
+            if (selectedCameras.Count == 0)
+                return;
+            
+            // Detener todos
+            StopAllCameras();
+            
+            // Reiniciar con nueva calidad
+            for (int i = 0; i < selectedCameras.Count && i < _cameraViews.Count; i++)
+            {
+                StartCamera(_cameraViews[i], selectedCameras[i]);
+            }
         }
 
         protected override void OnClosed(EventArgs e)
