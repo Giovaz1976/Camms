@@ -67,9 +67,25 @@ namespace V380Viewer
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            // Cancelar cualquier escaneo en progreso
+            if (_scanCancellationTokenSource != null && !_scanCancellationTokenSource.IsCancellationRequested)
+            {
+                Console.WriteLine("Cancelling scan due to window closing...");
+                _scanCancellationTokenSource.Cancel();
+            }
+            
             // Limpiar recursos
+            Console.WriteLine("Stopping all cameras...");
             StopAllCameras();
+            
+            Console.WriteLine("Disposing LibVLC...");
             _libVLC?.Dispose();
+            
+            // Limpiar servicios
+            _ptzService?.Dispose();
+            _onvifDiscovery?.Dispose();
+            
+            Console.WriteLine("Window closed successfully");
         }
 
         private async void BtnScanCameras_Click(object sender, RoutedEventArgs e)
@@ -78,6 +94,12 @@ namespace V380Viewer
             if (_scanCancellationTokenSource != null)
             {
                 _scanCancellationTokenSource.Cancel();
+                
+                // Restaurar botón inmediatamente
+                BtnScanCameras.Content = "🔍 Scan Cameras";
+                BtnScanCameras.Background = new SolidColorBrush(Color.FromRgb(52, 152, 219)); // Azul
+                TxtStatus.Text = "Scan cancelled by user.";
+                
                 return;
             }
             
@@ -223,11 +245,122 @@ namespace V380Viewer
             dialog.ShowDialog();
         }
 
-        private void OnCameraDiscovered(object? sender, CameraInfo camera)
+        private async void OnCameraDiscovered(object? sender, CameraInfo camera)
         {
-            Dispatcher.Invoke(() =>
+            await Dispatcher.InvokeAsync(async () =>
             {
+                // Verificar si el escaneo fue cancelado
+                if (_scanCancellationTokenSource?.IsCancellationRequested == true)
+                {
+                    Console.WriteLine($"Scan cancelled, skipping camera {camera.IpAddress}");
+                    return;
+                }
+                
+                // Verificar si la cámara ya existe en la lista
+                var existingCamera = LstCameras.Items.Cast<CameraInfo>()
+                    .FirstOrDefault(c => c.IpAddress == camera.IpAddress);
+                
+                if (existingCamera != null)
+                {
+                    Console.WriteLine($"Camera {camera.IpAddress} already in list, skipping");
+                    return;
+                }
+                
+                // Intentar con credenciales por defecto primero
+                var defaultCredentials = new[] 
+                { 
+                    new { User = "admin", Pass = "" },
+                    new { User = "admin", Pass = "admin" },
+                    new { User = "admin", Pass = "888888" },
+                    new { User = "admin", Pass = "12345" }
+                };
+                
+                bool authenticated = false;
+                
+                foreach (var cred in defaultCredentials)
+                {
+                    // Verificar cancelación antes de cada intento
+                    if (_scanCancellationTokenSource?.IsCancellationRequested == true)
+                    {
+                        Console.WriteLine($"Scan cancelled during authentication for {camera.IpAddress}");
+                        return;
+                    }
+                    
+                    Console.WriteLine($"Trying credentials {cred.User}/{(string.IsNullOrEmpty(cred.Pass) ? "(empty)" : "***")} for {camera.IpAddress}...");
+                    
+                    var profileToken = await _ptzService.GetProfileTokenAsync(camera.IpAddress, cred.User, cred.Pass);
+                    
+                    if (!string.IsNullOrEmpty(profileToken))
+                    {
+                        // Credenciales válidas para ONVIF
+                        camera.Username = cred.User;
+                        camera.Password = cred.Pass;
+                        camera.RtspUsername = cred.User;
+                        camera.RtspPassword = cred.Pass;
+                        authenticated = true;
+                        Console.WriteLine($"✓ Authenticated with {cred.User}/{(string.IsNullOrEmpty(cred.Pass) ? "(empty)" : "***")}");
+                        
+                        // Si la contraseña está vacía, puede que RTSP requiera contraseña real
+                        // Solicitar credenciales para RTSP
+                        if (string.IsNullOrEmpty(cred.Pass))
+                        {
+                            Console.WriteLine($"⚠ ONVIF accepted empty password, but RTSP may require password");
+                            Console.WriteLine($"  Requesting RTSP credentials for {camera.IpAddress}...");
+                            
+                            var rtspResult = await ShowRtspCredentialsDialogAsync(camera);
+                            
+                            if (rtspResult.Success)
+                            {
+                                camera.RtspUsername = rtspResult.Username;
+                                camera.RtspPassword = rtspResult.Password;
+                                Console.WriteLine($"✓ RTSP credentials configured: {rtspResult.Username}/***");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"⚠ User skipped RTSP credentials, using empty password");
+                            }
+                        }
+                        
+                        break;
+                    }
+                }
+                
+                // Si no se autenticó con credenciales por defecto, solicitar manualmente
+                if (!authenticated)
+                {
+                    Console.WriteLine($"⚠ Default credentials failed for {camera.IpAddress}, requesting manual input...");
+                    
+                    var result = await ShowCredentialsDialogAsync(camera);
+                    
+                    if (!result.Success)
+                    {
+                        Console.WriteLine($"✗ User cancelled credentials for {camera.IpAddress}");
+                        TxtStatus.Text = $"Camera {camera.IpAddress} skipped (no credentials)";
+                        return;
+                    }
+                    
+                    // Validar credenciales ingresadas
+                    var profileToken = await _ptzService.GetProfileTokenAsync(camera.IpAddress, result.Username, result.Password);
+                    
+                    if (string.IsNullOrEmpty(profileToken))
+                    {
+                        MessageBox.Show($"Invalid credentials for {camera.IpAddress}\nONVIF authentication failed.", 
+                            "Authentication Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                        Console.WriteLine($"✗ Invalid credentials for {camera.IpAddress}");
+                        return;
+                    }
+                    
+                    camera.Username = result.Username;
+                    camera.Password = result.Password;
+                    camera.RtspUsername = result.Username;
+                    camera.RtspPassword = result.Password;
+                    Console.WriteLine($"✓ Authenticated with manual credentials for {camera.IpAddress}");
+                }
+                
+                // Agregar cámara a la lista
                 LstCameras.Items.Add(camera);
+                TxtStatus.Text = $"Camera added: {camera.Name} ({camera.IpAddress})";
+                Console.WriteLine($"✓ Camera {camera.Name} added to list");
             });
         }
 
@@ -349,7 +482,7 @@ namespace V380Viewer
             BtnLayout9.Background = new SolidColorBrush(_currentLayout == 9 ? Color.FromRgb(39, 174, 96) : Color.FromRgb(52, 73, 94));
         }
         
-        private void StartCamera(CameraView cameraView, CameraInfo camera, StreamQuality? quality = null)
+        private async void StartCamera(CameraView cameraView, CameraInfo camera, StreamQuality? quality = null)
         {
             try
             {
@@ -359,12 +492,75 @@ namespace V380Viewer
                 var streamQuality = quality ?? _globalStreamQuality;
                 int channel = (int)streamQuality; // 0 = main (HD), 1 = sub (SD)
                 
-                string rtspUrl = $"rtsp://admin:@{camera.IpAddress}/live/ch00_{channel}";
+                string rtspUrl;
+                
+                // Si la cámara tiene URL RTSP personalizada desde ONVIF, usarla
+                if (camera.UseCustomRtspUrl && !string.IsNullOrEmpty(camera.CustomRtspUrl))
+                {
+                    rtspUrl = camera.CustomRtspUrl;
+                    Console.WriteLine($"Using custom RTSP URL: {rtspUrl}");
+                }
+                // Si no, intentar obtenerla desde ONVIF
+                else if (!string.IsNullOrEmpty(camera.Username))
+                {
+                    Console.WriteLine($"Attempting to get RTSP URL from ONVIF for {camera.Name}...");
+                    
+                    // Obtener ProfileToken
+                    var profileToken = await _ptzService.GetProfileTokenAsync(camera.IpAddress, camera.Username, camera.Password);
+                    
+                    if (!string.IsNullOrEmpty(profileToken))
+                    {
+                        // Usar credenciales RTSP, o ONVIF como fallback si RTSP está vacío
+                        var rtspUser = string.IsNullOrEmpty(camera.RtspUsername) ? camera.Username : camera.RtspUsername;
+                        var rtspPass = string.IsNullOrEmpty(camera.RtspPassword) && string.IsNullOrEmpty(camera.RtspUsername) 
+                            ? camera.Password 
+                            : camera.RtspPassword;
+                        
+                        // Obtener URL RTSP desde ONVIF
+                        var onvifRtspUrl = await _ptzService.GetRtspUrlAsync(camera.IpAddress, rtspUser, rtspPass, profileToken);
+                        
+                        if (!string.IsNullOrEmpty(onvifRtspUrl))
+                        {
+                            // Guardar URL para futuros usos
+                            camera.CustomRtspUrl = onvifRtspUrl;
+                            camera.UseCustomRtspUrl = true;
+                            rtspUrl = onvifRtspUrl;
+                            Console.WriteLine($"✓ Got RTSP URL from ONVIF: {rtspUrl}");
+                        }
+                        else
+                        {
+                            // Fallback a formato V380
+                            Console.WriteLine("⚠ Could not get RTSP URL from ONVIF, using V380 format");
+                            string credentials = string.IsNullOrEmpty(camera.RtspPassword) 
+                                ? $"{camera.RtspUsername}:@" 
+                                : $"{camera.RtspUsername}:{camera.RtspPassword}@";
+                            rtspUrl = $"rtsp://{credentials}{camera.IpAddress}/live/ch00_{channel}";
+                        }
+                    }
+                    else
+                    {
+                        // Fallback a formato V380
+                        Console.WriteLine("⚠ Could not get ProfileToken, using V380 format");
+                        string credentials = string.IsNullOrEmpty(camera.RtspPassword) 
+                            ? $"{camera.RtspUsername}:@" 
+                            : $"{camera.RtspUsername}:{camera.RtspPassword}@";
+                        rtspUrl = $"rtsp://{credentials}{camera.IpAddress}/live/ch00_{channel}";
+                    }
+                }
+                else
+                {
+                    // Formato V380 por defecto
+                    string credentials = string.IsNullOrEmpty(camera.RtspPassword) 
+                        ? $"{camera.RtspUsername}:@" 
+                        : $"{camera.RtspUsername}:{camera.RtspPassword}@";
+                    rtspUrl = $"rtsp://{credentials}{camera.IpAddress}/live/ch00_{channel}";
+                }
+                
                 var media = new Media(_libVLC, new Uri(rtspUrl));
                 cameraView.CurrentMedia = media;
                 cameraView.MediaPlayer.Play(media);
                 
-                System.Diagnostics.Debug.WriteLine($"Started {camera.Name} with {streamQuality} quality: {rtspUrl}");
+                Console.WriteLine($"Started {camera.Name} with {streamQuality} quality: {rtspUrl}");
             }
             catch (Exception ex)
             {
@@ -601,6 +797,544 @@ namespace V380Viewer
             }
         }
         
+        private void MenuConfigureCredentials_Click(object sender, RoutedEventArgs e)
+        {
+            var selectedCameras = LstCameras.SelectedItems.Cast<CameraInfo>().ToList();
+            if (selectedCameras.Count == 0)
+            {
+                MessageBox.Show("Please select a camera first.", "Configure Credentials", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            
+            var camera = selectedCameras[0];
+            
+            var inputDialog = new Window
+            {
+                Title = $"Camera Credentials - {camera.Name}",
+                Width = 450,
+                Height = 450,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)),
+                ResizeMode = ResizeMode.NoResize
+            };
+            
+            var mainPanel = new StackPanel { Margin = new Thickness(20) };
+            
+            // Título RTSP
+            var lblRtspTitle = new TextBlock 
+            { 
+                Text = "📹 RTSP Streaming Credentials", 
+                Foreground = new SolidColorBrush(Color.FromRgb(52, 152, 219)), 
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 10) 
+            };
+            
+            // RTSP Username
+            var lblRtspUsername = new TextBlock 
+            { 
+                Text = "Username:", 
+                Foreground = Brushes.White, 
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtRtspUsername = new TextBox 
+            { 
+                Text = camera.RtspUsername, 
+                Height = 30,
+                Padding = new Thickness(8),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            
+            // RTSP Password
+            var lblRtspPassword = new TextBlock 
+            { 
+                Text = "Password:", 
+                Foreground = Brushes.White, 
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtRtspPassword = new TextBox 
+            { 
+                Text = camera.RtspPassword,
+                Height = 30,
+                Padding = new Thickness(8),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            
+            // Separador
+            var separator = new Separator 
+            { 
+                Margin = new Thickness(0, 10, 0, 15),
+                Background = new SolidColorBrush(Color.FromRgb(149, 165, 166))
+            };
+            
+            // Título ONVIF/PTZ
+            var lblOnvifTitle = new TextBlock 
+            { 
+                Text = "🎮 ONVIF/PTZ Credentials", 
+                Foreground = new SolidColorBrush(Color.FromRgb(155, 89, 182)), 
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 10) 
+            };
+            
+            // ONVIF Username
+            var lblOnvifUsername = new TextBlock 
+            { 
+                Text = "Username:", 
+                Foreground = Brushes.White, 
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtOnvifUsername = new TextBox 
+            { 
+                Text = camera.Username, 
+                Height = 30,
+                Padding = new Thickness(8),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            
+            // ONVIF Password
+            var lblOnvifPassword = new TextBlock 
+            { 
+                Text = "Password:", 
+                Foreground = Brushes.White, 
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtOnvifPassword = new TextBox 
+            { 
+                Text = camera.Password,
+                Height = 30,
+                Padding = new Thickness(8),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            
+            // Hint
+            var lblHint = new TextBlock 
+            { 
+                Text = "💡 Common: admin/(empty), admin/admin, admin/888888", 
+                Foreground = new SolidColorBrush(Color.FromRgb(149, 165, 166)), 
+                FontSize = 10,
+                FontStyle = FontStyles.Italic,
+                Margin = new Thickness(0, 5, 0, 15)
+            };
+            
+            // Botones
+            var btnPanel = new StackPanel 
+            { 
+                Orientation = Orientation.Horizontal, 
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            
+            var btnOk = new Button 
+            { 
+                Content = "Save", 
+                Width = 90, 
+                Height = 35, 
+                Margin = new Thickness(0, 0, 10, 0), 
+                Background = new SolidColorBrush(Color.FromRgb(39, 174, 96)), 
+                Foreground = Brushes.White, 
+                BorderThickness = new Thickness(0),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            
+            var btnCancel = new Button 
+            { 
+                Content = "Cancel", 
+                Width = 90, 
+                Height = 35, 
+                Background = new SolidColorBrush(Color.FromRgb(231, 76, 60)), 
+                Foreground = Brushes.White, 
+                BorderThickness = new Thickness(0),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            
+            btnOk.Click += (s, e) => 
+            { 
+                camera.RtspUsername = txtRtspUsername.Text; 
+                camera.RtspPassword = txtRtspPassword.Text; 
+                camera.Username = txtOnvifUsername.Text; 
+                camera.Password = txtOnvifPassword.Text;
+                
+                // Si RTSP está vacío, copiar credenciales ONVIF
+                if (string.IsNullOrEmpty(camera.RtspUsername) && !string.IsNullOrEmpty(camera.Username))
+                {
+                    camera.RtspUsername = camera.Username;
+                    camera.RtspPassword = camera.Password;
+                    Console.WriteLine($"✓ Copied ONVIF credentials to RTSP for {camera.Name}");
+                }
+                
+                // Limpiar URL RTSP en caché para forzar re-detección
+                camera.UseCustomRtspUrl = false;
+                camera.CustomRtspUrl = null;
+                
+                inputDialog.DialogResult = true; 
+            };
+            
+            btnCancel.Click += (s, e) => 
+            { 
+                inputDialog.DialogResult = false; 
+            };
+            
+            btnPanel.Children.Add(btnOk);
+            btnPanel.Children.Add(btnCancel);
+            
+            // Agregar todo al panel principal
+            mainPanel.Children.Add(lblRtspTitle);
+            mainPanel.Children.Add(lblRtspUsername);
+            mainPanel.Children.Add(txtRtspUsername);
+            mainPanel.Children.Add(lblRtspPassword);
+            mainPanel.Children.Add(txtRtspPassword);
+            mainPanel.Children.Add(separator);
+            mainPanel.Children.Add(lblOnvifTitle);
+            mainPanel.Children.Add(lblOnvifUsername);
+            mainPanel.Children.Add(txtOnvifUsername);
+            mainPanel.Children.Add(lblOnvifPassword);
+            mainPanel.Children.Add(txtOnvifPassword);
+            mainPanel.Children.Add(lblHint);
+            mainPanel.Children.Add(btnPanel);
+            
+            inputDialog.Content = mainPanel;
+            
+            if (inputDialog.ShowDialog() == true)
+            {
+                TxtStatus.Text = $"✓ Credentials updated for {camera.Name}";
+                Console.WriteLine($"Credentials updated for {camera.Name}:");
+                Console.WriteLine($"  RTSP: {camera.RtspUsername} / {(string.IsNullOrEmpty(camera.RtspPassword) ? "(empty)" : "***")}");
+                Console.WriteLine($"  ONVIF: {camera.Username} / {(string.IsNullOrEmpty(camera.Password) ? "(empty)" : "***")}");
+                
+                // Reiniciar stream si la cámara está activa
+                var activeView = _cameraViews.FirstOrDefault(v => v.Camera?.IpAddress == camera.IpAddress);
+                if (activeView != null)
+                {
+                    activeView.MediaPlayer?.Stop();
+                    StartCamera(activeView, camera);
+                    TxtStatus.Text = $"✓ Credentials updated and stream restarted for {camera.Name}";
+                }
+            }
+        }
+        
+        private void MenuRemoveCamera_Click(object sender, RoutedEventArgs e)
+        {
+            var selectedCameras = LstCameras.SelectedItems.Cast<CameraInfo>().ToList();
+            if (selectedCameras.Count == 0)
+            {
+                MessageBox.Show("Please select a camera to remove.", "Remove Camera", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            
+            var result = MessageBox.Show(
+                $"Are you sure you want to remove {selectedCameras.Count} camera(s)?", 
+                "Confirm Removal", 
+                MessageBoxButton.YesNo, 
+                MessageBoxImage.Question);
+            
+            if (result == MessageBoxResult.Yes)
+            {
+                foreach (var camera in selectedCameras)
+                {
+                    // Detener stream si está activo
+                    var activeView = _cameraViews.FirstOrDefault(v => v.Camera?.IpAddress == camera.IpAddress);
+                    if (activeView != null)
+                    {
+                        activeView.MediaPlayer?.Stop();
+                    }
+                    
+                    LstCameras.Items.Remove(camera);
+                }
+                
+                TxtStatus.Text = $"✓ Removed {selectedCameras.Count} camera(s)";
+            }
+        }
+        
+        /// <summary>
+        /// Muestra un diálogo para solicitar solo credenciales RTSP
+        /// </summary>
+        private Task<(bool Success, string Username, string Password)> ShowRtspCredentialsDialogAsync(CameraInfo camera)
+        {
+            var tcs = new TaskCompletionSource<(bool Success, string Username, string Password)>();
+            
+            var dialog = new Window
+            {
+                Title = $"RTSP Credentials - {camera.IpAddress}",
+                Width = 400,
+                Height = 340,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                Background = new SolidColorBrush(Color.FromRgb(44, 62, 80))
+            };
+            
+            var mainPanel = new StackPanel { Margin = new Thickness(20) };
+            
+            // Mensaje
+            var lblMessage = new TextBlock
+            {
+                Text = $"ONVIF connected successfully!\nHowever, RTSP streaming may require a password.\n\nEnter RTSP credentials (or Skip to use empty password):",
+                Foreground = Brushes.White,
+                FontSize = 11,
+                Margin = new Thickness(0, 0, 0, 15),
+                TextWrapping = TextWrapping.Wrap
+            };
+            
+            // Username
+            var lblUsername = new TextBlock 
+            { 
+                Text = "RTSP Username:", 
+                Foreground = Brushes.White, 
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtUsername = new TextBox 
+            { 
+                Text = "admin",
+                Height = 30,
+                Padding = new Thickness(8),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            
+            // Password
+            var lblPassword = new TextBlock 
+            { 
+                Text = "RTSP Password:", 
+                Foreground = Brushes.White, 
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtPassword = new PasswordBox 
+            { 
+                Height = 30,
+                Padding = new Thickness(8),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            
+            // Botones
+            var btnPanel = new StackPanel 
+            { 
+                Orientation = Orientation.Horizontal, 
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            
+            var btnSkip = new Button 
+            { 
+                Content = "Skip", 
+                Width = 90, 
+                Height = 35, 
+                Background = new SolidColorBrush(Color.FromRgb(149, 165, 166)), 
+                Foreground = Brushes.White, 
+                BorderThickness = new Thickness(0),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 10, 0),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            
+            var btnOk = new Button 
+            { 
+                Content = "Save", 
+                Width = 90, 
+                Height = 35, 
+                Background = new SolidColorBrush(Color.FromRgb(39, 174, 96)), 
+                Foreground = Brushes.White, 
+                BorderThickness = new Thickness(0),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            
+            btnOk.Click += (s, e) => 
+            { 
+                tcs.SetResult((true, txtUsername.Text, txtPassword.Password));
+                dialog.Close();
+            };
+            
+            btnSkip.Click += (s, e) => 
+            { 
+                tcs.SetResult((false, "", ""));
+                dialog.Close();
+            };
+            
+            dialog.Closed += (s, e) =>
+            {
+                if (!tcs.Task.IsCompleted)
+                {
+                    tcs.SetResult((false, "", ""));
+                }
+            };
+            
+            btnPanel.Children.Add(btnSkip);
+            btnPanel.Children.Add(btnOk);
+            
+            mainPanel.Children.Add(lblMessage);
+            mainPanel.Children.Add(lblUsername);
+            mainPanel.Children.Add(txtUsername);
+            mainPanel.Children.Add(lblPassword);
+            mainPanel.Children.Add(txtPassword);
+            mainPanel.Children.Add(btnPanel);
+            
+            dialog.Content = mainPanel;
+            dialog.ShowDialog();
+            
+            return tcs.Task;
+        }
+        
+        /// <summary>
+        /// Muestra un diálogo para solicitar credenciales durante el escaneo
+        /// </summary>
+        private Task<(bool Success, string Username, string Password)> ShowCredentialsDialogAsync(CameraInfo camera)
+        {
+            var tcs = new TaskCompletionSource<(bool Success, string Username, string Password)>();
+            
+            var dialog = new Window
+            {
+                Title = $"Credentials Required - {camera.IpAddress}",
+                Width = 400,
+                Height = 350,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                Background = new SolidColorBrush(Color.FromRgb(44, 62, 80))
+            };
+            
+            var mainPanel = new StackPanel { Margin = new Thickness(20) };
+            
+            // Mensaje
+            var lblMessage = new TextBlock
+            {
+                Text = $"Camera found at {camera.IpAddress}\nDefault credentials failed. Please enter credentials:",
+                Foreground = Brushes.White,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 20),
+                TextWrapping = TextWrapping.Wrap
+            };
+            
+            // Username
+            var lblUsername = new TextBlock 
+            { 
+                Text = "Username:", 
+                Foreground = Brushes.White, 
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtUsername = new TextBox 
+            { 
+                Text = "admin",
+                Height = 30,
+                Padding = new Thickness(8),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 15)
+            };
+            
+            // Password
+            var lblPassword = new TextBlock 
+            { 
+                Text = "Password:", 
+                Foreground = Brushes.White, 
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5) 
+            };
+            
+            var txtPassword = new PasswordBox 
+            { 
+                Height = 30,
+                Padding = new Thickness(8),
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            
+            // Botones
+            var btnPanel = new StackPanel 
+            { 
+                Orientation = Orientation.Horizontal, 
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            
+            var btnSkip = new Button 
+            { 
+                Content = "Skip", 
+                Width = 90, 
+                Height = 35, 
+                Background = new SolidColorBrush(Color.FromRgb(149, 165, 166)), 
+                Foreground = Brushes.White, 
+                BorderThickness = new Thickness(0),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 10, 0),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            
+            var btnOk = new Button 
+            { 
+                Content = "Connect", 
+                Width = 90, 
+                Height = 35, 
+                Background = new SolidColorBrush(Color.FromRgb(39, 174, 96)), 
+                Foreground = Brushes.White, 
+                BorderThickness = new Thickness(0),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            
+            btnOk.Click += (s, e) => 
+            { 
+                tcs.SetResult((true, txtUsername.Text, txtPassword.Password));
+                dialog.Close();
+            };
+            
+            btnSkip.Click += (s, e) => 
+            { 
+                tcs.SetResult((false, "", ""));
+                dialog.Close();
+            };
+            
+            dialog.Closed += (s, e) =>
+            {
+                if (!tcs.Task.IsCompleted)
+                {
+                    tcs.SetResult((false, "", ""));
+                }
+            };
+            
+            btnPanel.Children.Add(btnSkip);
+            btnPanel.Children.Add(btnOk);
+            
+            mainPanel.Children.Add(lblMessage);
+            mainPanel.Children.Add(lblUsername);
+            mainPanel.Children.Add(txtUsername);
+            mainPanel.Children.Add(lblPassword);
+            mainPanel.Children.Add(txtPassword);
+            mainPanel.Children.Add(btnPanel);
+            
+            dialog.Content = mainPanel;
+            dialog.ShowDialog();
+            
+            return tcs.Task;
+        }
+        
         private void BtnTogglePtz_Click(object sender, RoutedEventArgs e)
         {
             TogglePtzPanel();
@@ -633,6 +1367,7 @@ namespace V380Viewer
                 BtnShowPtz.Content = "🎮 PTZ";
                 BtnShowPtz.Background = new SolidColorBrush(Color.FromRgb(142, 68, 173)); // Morado
                 _activePtzCamera = null;
+                _cachedProfileToken = null; // Limpiar caché
                 TxtStatus.Text = "PTZ control hidden";
             }
         }
@@ -753,17 +1488,17 @@ namespace V380Viewer
                 // Test 1: Pequeño movimiento a la derecha
                 Console.WriteLine("Test 1: Moving right...");
                 Console.WriteLine($"Using credentials: {_activePtzCamera.Username} / {(string.IsNullOrEmpty(_activePtzCamera.Password) ? "(empty)" : "***")}");
-                var success1 = await _ptzService.MoveAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, 0.3f, 0, 0);
+                var success1 = await _ptzService.MoveAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, 0.3f, 0, 0, profileToken);
                 await Task.Delay(1000);
-                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password);
+                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, profileToken);
                 
                 await Task.Delay(500);
                 
                 // Test 2: Pequeño movimiento a la izquierda (volver)
                 Console.WriteLine("Test 2: Moving left...");
-                var success2 = await _ptzService.MoveAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, -0.3f, 0, 0);
+                var success2 = await _ptzService.MoveAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, -0.3f, 0, 0, profileToken);
                 await Task.Delay(1000);
-                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password);
+                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, profileToken);
                 
                 Console.WriteLine($"\n========== PTZ TEST END ==========");
                 Console.WriteLine($"Test 1 (Right): {(success1 ? "✓ SUCCESS" : "✗ FAILED")}");
@@ -822,6 +1557,8 @@ namespace V380Viewer
             }
         }
         
+        private string? _cachedProfileToken = null;
+        
         private async Task SendPtzCommand(float panSpeed, float tiltSpeed, float zoomSpeed)
         {
             if (_activePtzCamera == null)
@@ -830,25 +1567,49 @@ namespace V380Viewer
                 return;
             }
             
-            System.Diagnostics.Debug.WriteLine($"Sending PTZ command: Pan={panSpeed}, Tilt={tiltSpeed}, Zoom={zoomSpeed}");
-            
-            var success = await _ptzService.MoveAsync(
-                _activePtzCamera.IpAddress, 
-                _activePtzCamera.Username, 
-                _activePtzCamera.Password, 
-                panSpeed, 
-                tiltSpeed, 
-                zoomSpeed
-            );
-            
-            if (success)
+            try
             {
-                TxtStatus.Text = $"PTZ: Moving camera {_activePtzCamera.Name}...";
+                // Obtener ProfileToken si no está en caché
+                if (string.IsNullOrEmpty(_cachedProfileToken))
+                {
+                    _cachedProfileToken = await _ptzService.GetProfileTokenAsync(
+                        _activePtzCamera.IpAddress, 
+                        _activePtzCamera.Username, 
+                        _activePtzCamera.Password
+                    );
+                    
+                    if (!string.IsNullOrEmpty(_cachedProfileToken))
+                    {
+                        Console.WriteLine($"ProfileToken cached: {_cachedProfileToken}");
+                    }
+                }
+                
+                Console.WriteLine($"Sending PTZ command: Pan={panSpeed}, Tilt={tiltSpeed}, Zoom={zoomSpeed}");
+                
+                var success = await _ptzService.MoveAsync(
+                    _activePtzCamera.IpAddress, 
+                    _activePtzCamera.Username, 
+                    _activePtzCamera.Password, 
+                    panSpeed, 
+                    tiltSpeed, 
+                    zoomSpeed,
+                    _cachedProfileToken
+                );
+                
+                if (success)
+                {
+                    TxtStatus.Text = $"PTZ: Moving camera {_activePtzCamera.Name}...";
+                }
+                else
+                {
+                    TxtStatus.Text = $"PTZ command failed - Check camera supports PTZ";
+                    Console.WriteLine($"✗ PTZ command failed for {_activePtzCamera.IpAddress}");
+                }
             }
-            else
+            catch (Exception ex)
             {
-                TxtStatus.Text = $"PTZ command failed - Check camera supports PTZ";
-                System.Diagnostics.Debug.WriteLine($"✗ PTZ command failed for {_activePtzCamera.IpAddress}");
+                Console.WriteLine($"PTZ command error: {ex.Message}");
+                TxtStatus.Text = $"PTZ error: {ex.Message}";
             }
         }
 

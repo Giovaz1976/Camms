@@ -16,5 +16,13 @@ namespace V380Viewer.Models
         // Credenciales para ONVIF/PTZ
         public string Username { get; set; } = "admin";
         public string Password { get; set; } = "";
+        
+        // Credenciales para RTSP (streaming)
+        public string RtspUsername { get; set; } = "admin";
+        public string RtspPassword { get; set; } = "";
+        
+        // URL RTSP personalizada (obtenida desde ONVIF GetStreamUri)
+        public string? CustomRtspUrl { get; set; } = null;
+        public bool UseCustomRtspUrl { get; set; } = false;
     }
 }

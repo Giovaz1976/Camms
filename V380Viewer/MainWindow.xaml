@@ -87,6 +87,13 @@
                              SelectionMode="Multiple"
                              Background="White" BorderThickness="0"
                              SelectionChanged="LstCameras_SelectionChanged">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="⚙️ Configure Credentials" Click="MenuConfigureCredentials_Click"/>
+                                <Separator/>
+                                <MenuItem Header="🗑️ Remove Camera" Click="MenuRemoveCamera_Click"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Margin="5">
