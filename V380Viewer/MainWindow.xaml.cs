@@ -392,16 +392,36 @@ namespace V380Viewer
             TxtConnectionInfo.Text = $"Connected: {selectedCameras.Count} camera(s)";
         }
 
-        private void SetupGridLayout(int gridSize)
+        private async void SetupGridLayout(int gridSize)
         {
             _currentLayout = gridSize;
             
-            // Limpiar vistas anteriores
-            foreach (var view in _cameraViews)
+            // Guardar referencias a cámaras activas antes de limpiar
+            var activeCameras = _cameraViews
+                .Where(v => v.Camera != null && !string.IsNullOrEmpty(v.Camera.Name))
+                .Select(v => v.Camera)
+                .ToList();
+            
+            // Limpiar vistas anteriores de forma segura en background
+            await Task.Run(() =>
             {
-                view.MediaPlayer?.Stop();
-                view.MediaPlayer?.Dispose();
-            }
+                foreach (var view in _cameraViews.ToList())
+                {
+                    try
+                    {
+                        if (view.MediaPlayer != null)
+                        {
+                            view.MediaPlayer.Stop();
+                            view.CurrentMedia?.Dispose();
+                            view.MediaPlayer.Dispose();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error disposing MediaPlayer: {ex.Message}");
+                    }
+                }
+            });
             
             VideoGrid.Children.Clear();
             VideoGrid.RowDefinitions.Clear();
@@ -472,6 +492,24 @@ namespace V380Viewer
             
             // Actualizar botones de layout
             UpdateLayoutButtons();
+            
+            // Restaurar cámaras activas en el nuevo layout
+            if (activeCameras.Count > 0)
+            {
+                Console.WriteLine($"Restoring {activeCameras.Count} active camera(s) in new layout...");
+                
+                for (int i = 0; i < Math.Min(activeCameras.Count, _cameraViews.Count); i++)
+                {
+                    try
+                    {
+                        StartCamera(_cameraViews[i], activeCameras[i]);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error restoring camera {activeCameras[i].Name}: {ex.Message}");
+                    }
+                }
+            }
         }
         
         private void UpdateLayoutButtons()
