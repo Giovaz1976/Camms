@@ -25,6 +25,7 @@ namespace V380Viewer
         private StreamQuality _globalStreamQuality = StreamQuality.Main; // HD por defecto
         private readonly OnvifPtzService _ptzService;
         private CameraInfo? _activePtzCamera; // Cámara actualmente controlada por PTZ
+        private bool _isDarkTheme = false; // Tema actual (false = claro, true = oscuro)
         
         public MainWindow()
         {
@@ -638,6 +639,79 @@ namespace V380Viewer
         {
             SetupGridLayout(9);
             LstCameras.SelectedItems.Clear();
+        }
+        
+        private void BtnTheme_Click(object sender, RoutedEventArgs e)
+        {
+            _isDarkTheme = !_isDarkTheme;
+            ApplyTheme(_isDarkTheme);
+        }
+        
+        private void ApplyTheme(bool isDark)
+        {
+            if (isDark)
+            {
+                // Aplicar tema oscuro Steam
+                // Panel superior
+                TopPanel.Background = new SolidColorBrush(Color.FromRgb(23, 26, 33)); // #171A21
+                
+                // Panel de lista de cámaras
+                CameraListPanel.Background = new SolidColorBrush(Color.FromRgb(27, 40, 56)); // #1B2838
+                CameraListPanel.BorderBrush = new SolidColorBrush(Color.FromRgb(61, 68, 80)); // #3D4450
+                
+                // Título de lista
+                TxtCameraListTitle.Foreground = new SolidColorBrush(Color.FromRgb(199, 213, 224)); // #C7D5E0
+                
+                // Lista de cámaras
+                LstCameras.Background = new SolidColorBrush(Color.FromRgb(23, 26, 33)); // #171A21
+                
+                // Panel PTZ
+                PtzPanel.Background = new SolidColorBrush(Color.FromRgb(23, 26, 33)); // #171A21
+                
+                // Botones de layout inactivos
+                BtnLayout2.Background = new SolidColorBrush(Color.FromRgb(42, 71, 94)); // #2A475E
+                BtnLayout4.Background = new SolidColorBrush(Color.FromRgb(42, 71, 94)); // #2A475E
+                BtnLayout9.Background = new SolidColorBrush(Color.FromRgb(42, 71, 94)); // #2A475E
+                
+                // Actualizar botón de tema
+                BtnTheme.Content = "☀️ Light";
+                BtnTheme.Background = new SolidColorBrush(Color.FromRgb(102, 192, 244)); // SteamBlue
+                
+                Console.WriteLine("✓ Steam Dark Theme activated");
+            }
+            else
+            {
+                // Aplicar tema claro (original)
+                // Panel superior
+                TopPanel.Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50
+                
+                // Panel de lista de cámaras
+                CameraListPanel.Background = new SolidColorBrush(Color.FromRgb(236, 240, 241)); // #ECF0F1
+                CameraListPanel.BorderBrush = new SolidColorBrush(Color.FromRgb(189, 195, 199)); // #BDC3C7
+                
+                // Título de lista
+                TxtCameraListTitle.Foreground = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50
+                
+                // Lista de cámaras
+                LstCameras.Background = new SolidColorBrush(Colors.White);
+                
+                // Panel PTZ
+                PtzPanel.Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50
+                
+                // Botones de layout inactivos
+                BtnLayout2.Background = new SolidColorBrush(Color.FromRgb(52, 73, 94)); // #34495E
+                BtnLayout4.Background = new SolidColorBrush(Color.FromRgb(52, 73, 94)); // #34495E
+                BtnLayout9.Background = new SolidColorBrush(Color.FromRgb(52, 73, 94)); // #34495E
+                
+                // Actualizar botón de tema
+                BtnTheme.Content = "🌙 Dark";
+                BtnTheme.Background = new SolidColorBrush(Color.FromRgb(102, 192, 244)); // SteamBlue
+                
+                Console.WriteLine("✓ Light Theme activated");
+            }
+            
+            // Actualizar botones de layout activos
+            UpdateLayoutButtons();
         }
         
         private void BtnExit_Click(object sender, RoutedEventArgs e)

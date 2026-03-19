@@ -6,6 +6,40 @@
         WindowStartupLocation="CenterScreen"
         Loaded="Window_Loaded"
         Closing="Window_Closing">
+    
+    <Window.Resources>
+        <!-- Steam Dark Theme Colors -->
+        <SolidColorBrush x:Key="SteamDarkBackground" Color="#1B2838"/>
+        <SolidColorBrush x:Key="SteamDarkPanel" Color="#171A21"/>
+        <SolidColorBrush x:Key="SteamDarkAccent" Color="#2A475E"/>
+        <SolidColorBrush x:Key="SteamBlue" Color="#66C0F4"/>
+        <SolidColorBrush x:Key="SteamDarkText" Color="#C7D5E0"/>
+        <SolidColorBrush x:Key="SteamDarkTextSecondary" Color="#8F98A0"/>
+        <SolidColorBrush x:Key="SteamDarkBorder" Color="#3D4450"/>
+        <SolidColorBrush x:Key="SteamDarkHover" Color="#417A9B"/>
+        <SolidColorBrush x:Key="SteamGreen" Color="#5C7E10"/>
+        <SolidColorBrush x:Key="SteamRed" Color="#CD5C5C"/>
+        
+        <!-- Light Theme Colors (Default) -->
+        <SolidColorBrush x:Key="LightBackground" Color="#ECF0F1"/>
+        <SolidColorBrush x:Key="LightPanel" Color="#2C3E50"/>
+        <SolidColorBrush x:Key="LightAccent" Color="#34495E"/>
+        <SolidColorBrush x:Key="LightBlue" Color="#3498DB"/>
+        <SolidColorBrush x:Key="LightText" Color="#2C3E50"/>
+        <SolidColorBrush x:Key="LightTextSecondary" Color="#7F8C8D"/>
+        <SolidColorBrush x:Key="LightBorder" Color="#BDC3C7"/>
+        <SolidColorBrush x:Key="LightWhite" Color="White"/>
+        
+        <!-- Dynamic Theme Brushes (will change based on theme) -->
+        <SolidColorBrush x:Key="ThemeBackground" Color="#ECF0F1"/>
+        <SolidColorBrush x:Key="ThemePanel" Color="#2C3E50"/>
+        <SolidColorBrush x:Key="ThemeAccent" Color="#34495E"/>
+        <SolidColorBrush x:Key="ThemeText" Color="#2C3E50"/>
+        <SolidColorBrush x:Key="ThemeTextSecondary" Color="#7F8C8D"/>
+        <SolidColorBrush x:Key="ThemeBorder" Color="#BDC3C7"/>
+        <SolidColorBrush x:Key="ThemeListBackground" Color="White"/>
+    </Window.Resources>
+    
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -14,7 +48,7 @@
         </Grid.RowDefinitions>
         
         <!-- Top Panel -->
-        <Border Grid.Row="0" Background="#2C3E50" Padding="10">
+        <Border x:Name="TopPanel" Grid.Row="0" Background="#2C3E50" Padding="10">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -40,6 +74,10 @@
                 </StackPanel>
                 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button x:Name="BtnTheme" Content="🌙 Dark" Width="80" Height="35" Margin="5,2,15,2" 
+                            Click="BtnTheme_Click" Background="#66C0F4" Foreground="White" 
+                            BorderThickness="0" FontWeight="Bold" Cursor="Hand" ToolTip="Toggle Steam Dark Theme"/>
+                    
                     <TextBlock Text="Layout:" VerticalAlignment="Center" Foreground="White" Margin="5,0"/>
                     <Button x:Name="BtnLayout1" Content="1" Width="35" Height="35" Margin="2" 
                             Click="BtnLayout1_Click" Background="#27AE60" Foreground="White" 
@@ -72,14 +110,15 @@
             </Grid.ColumnDefinitions>
             
             <!-- Camera List -->
-            <Border Grid.Column="0" Background="#ECF0F1" BorderBrush="#BDC3C7" BorderThickness="0,0,1,0">
+            <Border x:Name="CameraListPanel" Grid.Column="0" Background="#ECF0F1" 
+                    BorderBrush="#BDC3C7" BorderThickness="0,0,1,0">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     
-                    <TextBlock Grid.Row="0" Text="Discovered Cameras" 
+                    <TextBlock x:Name="TxtCameraListTitle" Grid.Row="0" Text="Discovered Cameras" 
                                FontWeight="Bold" FontSize="14" Margin="10"
                                Foreground="#2C3E50"/>
                     
