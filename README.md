@@ -1,10 +1,10 @@
-# V380 Camera Viewer - Local Network
+# Camera Viewer - Local Network
 
-Aplicación de escritorio para Windows que permite visualizar cámaras V380 sin pasar por la nube, mediante conexión directa en red local.
+Aplicación de escritorio para Windows que permite visualizar cámaras  sin pasar por la nube, mediante conexión directa en red local.
 
 ## 🎯 Características
 
-- ✅ Descubrimiento automático de cámaras V380 en red local
+- ✅ Descubrimiento automático de cámaras en red local
 - ✅ Conexión directa P2P sin servidores cloud
 - ✅ Visualización de stream de video en tiempo real
 - ✅ Interfaz moderna WPF
@@ -14,7 +14,7 @@ Aplicación de escritorio para Windows que permite visualizar cámaras V380 sin 
 - **Framework**: .NET 8.0 + WPF
 - **Lenguaje**: C#
 - **Video**: FFmpeg.AutoGen para decodificación
-- **Protocolo**: Ingeniería inversa del protocolo V380
+
 
 ## 📋 Requisitos
 
@@ -31,11 +31,11 @@ dotnet build
 dotnet run --project V380Viewer
 ```
 
-## 📡 Protocolo V380 - Ingeniería Inversa
+## 📡 Ingeniería Inversa
 
 ### Paso 1: Capturar Tráfico Real
 
-Para que la aplicación funcione, necesitas capturar los paquetes reales del protocolo V380:
+Para que la aplicación funcione, necesitas capturar los paquetes reales del protocolo 
 
 1. **Instalar Wireshark**
    - Descarga: https://www.wireshark.org/
@@ -44,7 +44,7 @@ Para que la aplicación funcione, necesitas capturar los paquetes reales del pro
    - Abre Wireshark
    - Selecciona tu interfaz de red (WiFi/Ethernet)
    - Inicia captura
-   - Abre la app V380 Pro en tu móvil
+   - Abre la app de la cam en tu móvil
    - Conecta a una cámara
    - Detén la captura en Wireshark
 
@@ -101,7 +101,7 @@ ip.addr == 192.168.1.X     # Tu cámara específica
 
 ## 📝 Notas Importantes
 
-⚠️ **ADVERTENCIA**: Esta aplicación usa ingeniería inversa del protocolo V380. Los valores actuales en el código son **placeholders** y necesitan ser reemplazados con los valores reales capturados de tu cámara.
+⚠️ **ADVERTENCIA**: Esta aplicación usa ingeniería inversa del protocolo. Los valores actuales en el código son **placeholders** y necesitan ser reemplazados con los valores reales capturados de tu cámara.
 
 ### Próximos Pasos
 
