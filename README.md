@@ -28,7 +28,7 @@ Aplicación de escritorio para Windows que permite visualizar cámaras  sin pasa
 ```bash
 dotnet restore
 dotnet build
-dotnet run --project V380Viewer
+dotnet run --project CameraViewer
 ```
 
 ## 📡 Ingeniería Inversa

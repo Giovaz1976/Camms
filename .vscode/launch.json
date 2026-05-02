@@ -10,9 +10,9 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/V380Viewer/bin/Debug/net8.0-windows/V380Viewer.dll",
+            "program": "${workspaceFolder}/CameraViewer/bin/Debug/net8.0-windows/CameraViewer.dll",
             "args": [],
-            "cwd": "${workspaceFolder}/V380Viewer",
+            "cwd": "${workspaceFolder}/CameraViewer",
             // For more information about the 'console' field, see https://aka.ms/VSCode-CS-LaunchJson-Console
             "console": "internalConsole",
             "stopAtEntry": false
