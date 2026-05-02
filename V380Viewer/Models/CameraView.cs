@@ -10,11 +10,14 @@ namespace V380Viewer.Models
         public CameraInfo Camera { get; set; }
         public MediaPlayer MediaPlayer { get; set; }
         public Media? CurrentMedia { get; set; }
+        public bool IsRecording { get; set; }
+        public string? RecordingPath { get; set; }
 
         public CameraView(CameraInfo camera, MediaPlayer mediaPlayer)
         {
             Camera = camera;
             MediaPlayer = mediaPlayer;
+            IsRecording = false;
         }
 
         public void Dispose()

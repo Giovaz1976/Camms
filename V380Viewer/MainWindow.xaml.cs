@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -74,6 +75,10 @@ namespace V380Viewer
                 Console.WriteLine("Cancelling scan due to window closing...");
                 _scanCancellationTokenSource.Cancel();
             }
+            
+            // Detener todas las grabaciones primero
+            Console.WriteLine("Stopping all recordings...");
+            StopAllRecordings();
             
             // Limpiar recursos
             Console.WriteLine("Stopping all cameras...");
@@ -753,6 +758,158 @@ namespace V380Viewer
             for (int i = 0; i < selectedCameras.Count && i < _cameraViews.Count; i++)
             {
                 StartCamera(_cameraViews[i], selectedCameras[i]);
+            }
+        }
+        
+        // ==================== VIDEO RECORDING ====================
+        
+        private void BtnRecord_Click(object sender, RoutedEventArgs e)
+        {
+            // Verificar si hay cámaras activas
+            var activeCameras = _cameraViews.Where(v => v.Camera != null && !string.IsNullOrEmpty(v.Camera.Name)).ToList();
+            
+            if (activeCameras.Count == 0)
+            {
+                MessageBox.Show("Please select and start a camera first.", "No Active Camera", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            
+            // Verificar si alguna cámara está grabando
+            var recordingCameras = activeCameras.Where(v => v.IsRecording).ToList();
+            
+            if (recordingCameras.Count > 0)
+            {
+                // Detener todas las grabaciones
+                StopAllRecordings();
+                BtnRecord.Content = "⏺ Record";
+                BtnRecord.Background = new SolidColorBrush(Color.FromRgb(231, 76, 60)); // Rojo
+                TxtStatus.Text = $"Recording stopped for {recordingCameras.Count} camera(s)";
+            }
+            else
+            {
+                // Iniciar grabación para todas las cámaras activas
+                StartAllRecordings(activeCameras);
+                BtnRecord.Content = "⏹ Stop";
+                BtnRecord.Background = new SolidColorBrush(Color.FromRgb(192, 57, 43)); // Rojo oscuro
+                TxtStatus.Text = $"Recording started for {activeCameras.Count} camera(s)";
+            }
+        }
+        
+        private void StartAllRecordings(List<CameraView> cameras)
+        {
+            // Crear carpeta de grabaciones si no existe
+            string recordingsFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "V380Recordings");
+            Directory.CreateDirectory(recordingsFolder);
+            
+            int successCount = 0;
+            
+            foreach (var cameraView in cameras)
+            {
+                if (cameraView.MediaPlayer != null && cameraView.Camera != null)
+                {
+                    try
+                    {
+                        if (_libVLC == null)
+                        {
+                            Console.WriteLine("✗ LibVLC not initialized");
+                            continue;
+                        }
+                        
+                        // Generar nombre de archivo con timestamp
+                        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                        string safeFileName = string.Join("_", cameraView.Camera.Name.Split(Path.GetInvalidFileNameChars()));
+                        string fileName = $"{safeFileName}_{timestamp}.mp4";
+                        string filePath = Path.Combine(recordingsFolder, fileName);
+                        
+                        // Detener el stream actual
+                        cameraView.MediaPlayer.Stop();
+                        cameraView.CurrentMedia?.Dispose();
+                        
+                        // Obtener la URL RTSP actual
+                        string rtspUrl = GetRtspUrl(cameraView.Camera);
+                        
+                        // Crear nuevo media con opciones de grabación
+                        var media = new Media(_libVLC, new Uri(rtspUrl));
+                        
+                        // Agregar opciones de grabación usando duplicate para mostrar Y grabar
+                        string soutOption = $":sout=#duplicate{{dst=display,dst=std{{access=file,mux=mp4,dst={filePath}}}}}";
+                        media.AddOption(soutOption);
+                        media.AddOption(":sout-keep");
+                        
+                        cameraView.CurrentMedia = media;
+                        cameraView.MediaPlayer.Play(media);
+                        
+                        cameraView.IsRecording = true;
+                        cameraView.RecordingPath = filePath;
+                        
+                        Console.WriteLine($"✓ Recording started: {filePath}");
+                        successCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"✗ Failed to start recording for {cameraView.Camera.Name}: {ex.Message}");
+                        MessageBox.Show($"Failed to start recording for {cameraView.Camera.Name}: {ex.Message}", 
+                            "Recording Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                }
+            }
+            
+            if (successCount > 0)
+            {
+                // Mostrar mensaje con ubicación de grabaciones
+                MessageBox.Show($"Recording started for {successCount} camera(s)\n\nSaving to: {recordingsFolder}", 
+                    "Recording Started", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+        
+        private string GetRtspUrl(CameraInfo camera)
+        {
+            // Usar calidad global
+            int channel = (int)_globalStreamQuality; // 0 = main (HD), 1 = sub (SD)
+            
+            // Si la cámara tiene URL RTSP personalizada, usarla
+            if (camera.UseCustomRtspUrl && !string.IsNullOrEmpty(camera.CustomRtspUrl))
+            {
+                return camera.CustomRtspUrl;
+            }
+            
+            // Formato V380 por defecto
+            string credentials = string.IsNullOrEmpty(camera.RtspPassword) 
+                ? $"{camera.RtspUsername}:@" 
+                : $"{camera.RtspUsername}:{camera.RtspPassword}@";
+            
+            return $"rtsp://{credentials}{camera.IpAddress}/live/ch00_{channel}";
+        }
+        
+        private void StopAllRecordings()
+        {
+            var recordingCameras = _cameraViews.Where(v => v.IsRecording).ToList();
+            
+            foreach (var cameraView in recordingCameras)
+            {
+                try
+                {
+                    cameraView.IsRecording = false;
+                    
+                    if (!string.IsNullOrEmpty(cameraView.RecordingPath))
+                    {
+                        Console.WriteLine($"✓ Recording stopped: {cameraView.RecordingPath}");
+                        
+                        // Reiniciar el stream para detener la grabación
+                        if (cameraView.Camera != null)
+                        {
+                            cameraView.MediaPlayer?.Stop();
+                            cameraView.CurrentMedia?.Dispose();
+                            StartCamera(cameraView, cameraView.Camera);
+                        }
+                        
+                        cameraView.RecordingPath = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"✗ Error stopping recording: {ex.Message}");
+                }
             }
         }
         

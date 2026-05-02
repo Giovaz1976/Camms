@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("V380Viewer")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f85bbad0d83881bcfb237cc515d96083044dd5d0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8d4385ee8522b71cb2209ff3bc78bcca95e71c91")]
 [assembly: System.Reflection.AssemblyProductAttribute("V380Viewer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("V380Viewer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

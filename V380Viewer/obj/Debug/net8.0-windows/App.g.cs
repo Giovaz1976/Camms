@@ -43,7 +43,7 @@ namespace V380Viewer {
         /// InitializeComponent
         /// </summary>
         [System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [System.CodeDom.Compiler.GeneratedCodeAttribute("PresentationBuildTasks", "9.0.14.0")]
+        [System.CodeDom.Compiler.GeneratedCodeAttribute("PresentationBuildTasks", "9.0.15.0")]
         public void InitializeComponent() {
             
             #line 4 "..\..\..\App.xaml"
@@ -58,7 +58,7 @@ namespace V380Viewer {
         /// </summary>
         [System.STAThreadAttribute()]
         [System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [System.CodeDom.Compiler.GeneratedCodeAttribute("PresentationBuildTasks", "9.0.14.0")]
+        [System.CodeDom.Compiler.GeneratedCodeAttribute("PresentationBuildTasks", "9.0.15.0")]
         public static void Main() {
             V380Viewer.App app = new V380Viewer.App();
             app.InitializeComponent();

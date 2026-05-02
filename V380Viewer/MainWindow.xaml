@@ -65,6 +65,10 @@
                             Width="110" Height="35" Margin="5" Click="BtnAddCamera_Click"
                             Background="#16A085" Foreground="White" BorderThickness="0"
                             FontWeight="Bold" Cursor="Hand"/>
+                    <Button x:Name="BtnRecord" Content="⏺ Record" 
+                            Width="90" Height="35" Margin="5" Click="BtnRecord_Click"
+                            Background="#E74C3C" Foreground="White" BorderThickness="0"
+                            FontWeight="Bold" Cursor="Hand" ToolTip="Start/Stop recording"/>
                     <Button x:Name="BtnQuality" Content="⚙️ HD" 
                             Width="70" Height="35" Margin="5" Click="BtnQuality_Click"
                             Background="#9B59B6" Foreground="White" BorderThickness="0"
