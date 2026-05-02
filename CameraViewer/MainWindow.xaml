@@ -73,6 +73,10 @@
                             Width="70" Height="35" Margin="5" Click="BtnQuality_Click"
                             Background="#9B59B6" Foreground="White" BorderThickness="0"
                             FontWeight="Bold" Cursor="Hand" ToolTip="Toggle stream quality (HD/SD)"/>
+                    <Button x:Name="BtnGlobalAudio" Content="🔇 Audio" 
+                            Width="90" Height="35" Margin="5" Click="BtnGlobalAudio_Click"
+                            Background="#DC3545" Foreground="White" BorderThickness="0"
+                            FontWeight="Bold" Cursor="Hand" ToolTip="Toggle audio for all cameras"/>
                     <TextBlock x:Name="TxtStatus" Text="Ready" VerticalAlignment="Center" 
                                Margin="15,0,0,0" Foreground="White" FontSize="14"/>
                 </StackPanel>

@@ -27,6 +27,7 @@ namespace CameraViewer
         private readonly OnvifPtzService _ptzService;
         private CameraInfo? _activePtzCamera; // Cámara actualmente controlada por PTZ
         private bool _isDarkTheme = false; // Tema actual (false = claro, true = oscuro)
+        private bool _globalAudioMuted = true; // Estado global de audio (true = muted por defecto)
         
         public MainWindow()
         {
@@ -53,14 +54,17 @@ namespace CameraViewer
             {
                 "--network-caching=50",          // Buffer mínimo pero estable (50ms)
                 "--rtsp-tcp",                    // RTSP sobre TCP (más estable)
-                "--no-audio",                    // Desactivar audio
                 "--live-caching=50",             // Cache mínimo para live
                 "--avcodec-hurry-up",            // Decodificación rápida
                 "--avcodec-fast",                // Codec rápido
                 "--avcodec-threads=2",           // Threads reducidos para múltiples streams
                 "--drop-late-frames",            // Descartar frames tardíos
                 "--skip-frames",                 // Saltar frames si es necesario
-                "--vout=direct3d11"              // Aceleración por hardware
+                "--vout=direct3d11",             // Aceleración por hardware
+                // Opciones de audio
+                "--audio-desync=0",              // Sincronización de audio
+                "--audio-time-stretch",          // Ajuste de tiempo de audio
+                "--audio-resampler=soxr"         // Resampler de alta calidad
             };
             
             _libVLC = new LibVLC(options);
@@ -466,16 +470,52 @@ namespace CameraViewer
                     
                     try
                     {
+                        // Crear un Grid para contener el video y el overlay del botón de audio
+                        var cellGrid = new Grid();
+                        
                         var videoView = new VideoView();
                         var mediaPlayer = new VLCMediaPlayer(_libVLC);
                         videoView.MediaPlayer = mediaPlayer;
                         
-                        border.Child = videoView;
+                        // Agregar video al grid con ZIndex 0 (fondo)
+                        Panel.SetZIndex(videoView, 0);
+                        cellGrid.Children.Add(videoView);
+                        
+                        // Crear botón de audio con icono de bocina
+                        var audioButton = new Button
+                        {
+                            Width = 35,
+                            Height = 35,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            VerticalAlignment = VerticalAlignment.Bottom,
+                            Margin = new Thickness(0, 0, 10, 10),
+                            Background = new SolidColorBrush(Color.FromArgb(180, 220, 53, 69)), // Rojo semi-transparente (muted)
+                            BorderThickness = new Thickness(0),
+                            Cursor = System.Windows.Input.Cursors.Hand,
+                            FontSize = 18,
+                            Content = "🔇", // Bocina con X (muted)
+                            Foreground = Brushes.White,
+                            ToolTip = "Click to unmute audio",
+                            Focusable = false, // Evitar que robe el foco del video
+                            IsTabStop = false  // Excluir de navegación por teclado
+                        };
+                        
+                        // Crear CameraView antes de asignar el evento
+                        var cameraView = new CameraView(new CameraInfo(), mediaPlayer);
+                        cameraView.AudioButton = audioButton; // Guardar referencia al botón
+                        _cameraViews.Add(cameraView);
+                        
+                        // Evento click para toggle audio
+                        audioButton.Click += (s, e) => ToggleAudio(cameraView, audioButton);
+                        
+                        // Agregar botón al grid con ZIndex 10 (encima del video)
+                        Panel.SetZIndex(audioButton, 10);
+                        cellGrid.Children.Add(audioButton);
+                        
+                        border.Child = cellGrid;
                         Grid.SetRow(border, row);
                         Grid.SetColumn(border, col);
                         VideoGrid.Children.Add(border);
-                        
-                        _cameraViews.Add(new CameraView(new CameraInfo(), mediaPlayer));
                     }
                     catch (Exception ex)
                     {
@@ -609,6 +649,9 @@ namespace CameraViewer
                 var media = new Media(_libVLC, new Uri(rtspUrl));
                 cameraView.CurrentMedia = media;
                 cameraView.MediaPlayer.Play(media);
+                
+                // Ensure audio is muted by default
+                cameraView.MediaPlayer.Mute = cameraView.IsMuted;
                 
                 Console.WriteLine($"Started {camera.Name} with {streamQuality} quality: {rtspUrl}");
             }
@@ -767,6 +810,63 @@ namespace CameraViewer
             }
         }
         
+        // ==================== GLOBAL AUDIO CONTROL ====================
+        
+        private void BtnGlobalAudio_Click(object sender, RoutedEventArgs e)
+        {
+            // Toggle global audio state
+            _globalAudioMuted = !_globalAudioMuted;
+            
+            // Update global button appearance
+            if (_globalAudioMuted)
+            {
+                BtnGlobalAudio.Content = "🔇 Audio";
+                BtnGlobalAudio.Background = new SolidColorBrush(Color.FromRgb(220, 53, 69)); // Rojo
+                BtnGlobalAudio.ToolTip = "Audio muted - Click to enable audio for all cameras";
+            }
+            else
+            {
+                BtnGlobalAudio.Content = "🔊 Audio";
+                BtnGlobalAudio.Background = new SolidColorBrush(Color.FromRgb(39, 174, 96)); // Verde
+                BtnGlobalAudio.ToolTip = "Audio enabled - Click to mute all cameras";
+            }
+            
+            // Apply to all active camera views
+            int affectedCameras = 0;
+            foreach (var cameraView in _cameraViews)
+            {
+                if (cameraView.MediaPlayer != null && cameraView.Camera != null && !string.IsNullOrEmpty(cameraView.Camera.Name))
+                {
+                    cameraView.IsMuted = _globalAudioMuted;
+                    cameraView.MediaPlayer.Mute = _globalAudioMuted;
+                    
+                    // Update individual button appearance
+                    if (cameraView.AudioButton != null)
+                    {
+                        if (_globalAudioMuted)
+                        {
+                            cameraView.AudioButton.Background = new SolidColorBrush(Color.FromArgb(180, 220, 53, 69));
+                            cameraView.AudioButton.Content = "🔇";
+                            cameraView.AudioButton.ToolTip = "Click to unmute audio";
+                        }
+                        else
+                        {
+                            cameraView.AudioButton.Background = new SolidColorBrush(Color.FromArgb(180, 39, 174, 96));
+                            cameraView.AudioButton.Content = "🔊";
+                            cameraView.AudioButton.ToolTip = "Click to mute audio";
+                        }
+                    }
+                    affectedCameras++;
+                }
+            }
+            
+            TxtStatus.Text = _globalAudioMuted 
+                ? $"Audio muted for {affectedCameras} camera(s)" 
+                : $"Audio enabled for {affectedCameras} camera(s)";
+            
+            Console.WriteLine($"Global audio {(_globalAudioMuted ? "muted" : "enabled")} for {affectedCameras} camera(s)");
+        }
+        
         // ==================== VIDEO RECORDING ====================
         
         private void BtnRecord_Click(object sender, RoutedEventArgs e)
@@ -850,6 +950,9 @@ namespace CameraViewer
                         
                         cameraView.CurrentMedia = media;
                         cameraView.MediaPlayer.Play(media);
+                        
+                        // Preserve mute state
+                        cameraView.MediaPlayer.Mute = cameraView.IsMuted;
                         
                         cameraView.IsRecording = true;
                         cameraView.RecordingPath = filePath;
@@ -1891,6 +1994,46 @@ namespace CameraViewer
             {
                 Console.WriteLine($"PTZ command error: {ex.Message}");
                 TxtStatus.Text = $"PTZ error: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// Toggle audio mute/unmute for a camera view and update visual indicator
+        /// </summary>
+        private void ToggleAudio(CameraView cameraView, Button audioButton)
+        {
+            if (cameraView.MediaPlayer == null)
+                return;
+            
+            try
+            {
+                // Toggle mute state
+                cameraView.IsMuted = !cameraView.IsMuted;
+                
+                // Apply mute to MediaPlayer
+                cameraView.MediaPlayer.Mute = cameraView.IsMuted;
+                
+                // Update button appearance based on mute state
+                if (cameraView.IsMuted)
+                {
+                    // Muted: Red background with muted speaker icon
+                    audioButton.Background = new SolidColorBrush(Color.FromArgb(180, 220, 53, 69)); // Rojo semi-transparente
+                    audioButton.Content = "🔇"; // Bocina con X
+                    audioButton.ToolTip = "Click to unmute audio";
+                }
+                else
+                {
+                    // Unmuted: Green background with active speaker icon
+                    audioButton.Background = new SolidColorBrush(Color.FromArgb(180, 39, 174, 96)); // Verde semi-transparente
+                    audioButton.Content = "🔊"; // Bocina activa
+                    audioButton.ToolTip = "Click to mute audio";
+                }
+                
+                Console.WriteLine($"Audio {(cameraView.IsMuted ? "muted" : "unmuted")} for camera: {cameraView.Camera?.Name ?? "Unknown"}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error toggling audio: {ex.Message}");
             }
         }
 
