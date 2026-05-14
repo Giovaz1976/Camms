@@ -135,6 +135,33 @@ namespace CameraViewer
                         LstCameras.Items.Add(camera);
                     }
                     
+                    // Si no se encontraron cámaras con multicast, intentar escaneo de puertos alternativos
+                    if (LstCameras.Items.Count == 0)
+                    {
+                        TxtStatus.Text = "Scanning alternative ONVIF ports...";
+                        
+                        // Obtener subnet local (ej: "192.168.1")
+                        var localIP = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                            .Where(ni => ni.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
+                            .SelectMany(ni => ni.GetIPProperties().UnicastAddresses)
+                            .FirstOrDefault(addr => addr.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork 
+                                && !System.Net.IPAddress.IsLoopback(addr.Address)
+                                && !addr.Address.ToString().StartsWith("169.254"));
+                        
+                        if (localIP != null)
+                        {
+                            var ipParts = localIP.Address.ToString().Split('.');
+                            var subnet = $"{ipParts[0]}.{ipParts[1]}.{ipParts[2]}";
+                            
+                            var altCameras = await _onvifDiscovery.DiscoverCamerasOnAlternativePortsAsync(subnet, cancellationToken);
+                            
+                            foreach (var camera in altCameras)
+                            {
+                                LstCameras.Items.Add(camera);
+                            }
+                        }
+                    }
+                    
                     TxtStatus.Text = $"Scan complete. Found {LstCameras.Items.Count} camera(s)";
                     
                     if (LstCameras.Items.Count == 0)

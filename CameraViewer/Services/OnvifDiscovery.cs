@@ -32,19 +32,51 @@ namespace CameraViewer.Services
                 using var client = new UdpClient();
                 client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 client.Client.Bind(new IPEndPoint(IPAddress.Any, 0));
-                client.Client.ReceiveTimeout = 500; // Timeout más corto para verificar cancelación más frecuentemente
+                client.Client.ReceiveTimeout = 500;
+                
+                // IMPORTANTE: Unirse al grupo multicast para recibir respuestas
+                var multicastAddress = IPAddress.Parse(MULTICAST_ADDRESS);
+                client.JoinMulticastGroup(multicastAddress);
+                
+                // Habilitar multicast loopback para recibir respuestas en la misma máquina
+                client.MulticastLoopback = true;
 
                 // Construir mensaje WS-Discovery SOAP
                 var probeMessage = BuildProbeMessage();
                 var probeBytes = Encoding.UTF8.GetBytes(probeMessage);
 
-                // Enviar a multicast
-                var multicastEndpoint = new IPEndPoint(IPAddress.Parse(MULTICAST_ADDRESS), MULTICAST_PORT);
+                // Enviar a multicast - enviar múltiples veces para mayor confiabilidad
+                var multicastEndpoint = new IPEndPoint(multicastAddress, MULTICAST_PORT);
+                
+                System.Diagnostics.Debug.WriteLine($"[ONVIF] Sending discovery probe to {MULTICAST_ADDRESS}:{MULTICAST_PORT}");
+                
+                // Enviar 3 veces con pequeño delay para mayor confiabilidad
                 await client.SendAsync(probeBytes, probeBytes.Length, multicastEndpoint);
+                await Task.Delay(100, cancellationToken);
+                await client.SendAsync(probeBytes, probeBytes.Length, multicastEndpoint);
+                await Task.Delay(100, cancellationToken);
+                await client.SendAsync(probeBytes, probeBytes.Length, multicastEndpoint);
+                
+                // También intentar broadcast para cámaras que no responden a multicast
+                try
+                {
+                    client.EnableBroadcast = true;
+                    var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, MULTICAST_PORT);
+                    System.Diagnostics.Debug.WriteLine($"[ONVIF] Sending discovery probe via broadcast");
+                    await client.SendAsync(probeBytes, probeBytes.Length, broadcastEndpoint);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ONVIF] Broadcast failed: {ex.Message}");
+                }
 
-                // Escuchar respuestas
+                // Escuchar respuestas por más tiempo (5 segundos en lugar de 3)
                 var startTime = DateTime.Now;
-                while ((DateTime.Now - startTime).TotalMilliseconds < DISCOVERY_TIMEOUT)
+                var discoveryTimeout = 5000; // 5 segundos
+                
+                System.Diagnostics.Debug.WriteLine($"[ONVIF] Listening for responses ({discoveryTimeout}ms)...");
+                
+                while ((DateTime.Now - startTime).TotalMilliseconds < discoveryTimeout)
                 {
                     // Verificar cancelación
                     cancellationToken.ThrowIfCancellationRequested();
@@ -54,29 +86,38 @@ namespace CameraViewer.Services
                         var result = await client.ReceiveAsync();
                         var response = Encoding.UTF8.GetString(result.Buffer);
                         
+                        System.Diagnostics.Debug.WriteLine($"[ONVIF] Received response from {result.RemoteEndPoint.Address}");
+                        
                         var camera = ParseProbeMatch(response, result.RemoteEndPoint.Address.ToString());
                         if (camera != null && !discoveredAddresses.Contains(camera.IpAddress))
                         {
                             discoveredAddresses.Add(camera.IpAddress);
                             cameras.Add(camera);
+                            System.Diagnostics.Debug.WriteLine($"[ONVIF] Camera discovered: {camera.Name} at {camera.IpAddress}");
                             CameraDiscovered?.Invoke(this, camera);
                         }
                     }
                     catch (SocketException)
                     {
                         // Timeout o no más respuestas - continuar esperando
-                        await Task.Delay(100, cancellationToken); // Pequeña pausa antes de reintentar
+                        await Task.Delay(100, cancellationToken);
                     }
                 }
+                
+                System.Diagnostics.Debug.WriteLine($"[ONVIF] Discovery complete. Found {cameras.Count} camera(s)");
+                
+                // Salir del grupo multicast
+                client.DropMulticastGroup(multicastAddress);
             }
             catch (OperationCanceledException)
             {
-                // Cancelación solicitada - propagar la excepción
+                System.Diagnostics.Debug.WriteLine("[ONVIF] Discovery cancelled");
                 throw;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ONVIF Discovery error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[ONVIF] Discovery error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[ONVIF] Stack trace: {ex.StackTrace}");
             }
 
             return cameras;
@@ -168,6 +209,79 @@ namespace CameraViewer.Services
             catch { }
             
             return null;
+        }
+
+        /// <summary>
+        /// Escanea puertos ONVIF alternativos (como 10080) en un rango de IPs
+        /// </summary>
+        public async Task<List<CameraInfo>> DiscoverCamerasOnAlternativePortsAsync(string subnet, CancellationToken cancellationToken = default)
+        {
+            var cameras = new List<CameraInfo>();
+            var discoveredAddresses = new HashSet<string>();
+            
+            System.Diagnostics.Debug.WriteLine($"[ONVIF] Scanning alternative ports on subnet {subnet}.x");
+            
+            // Puertos ONVIF alternativos
+            var alternativePorts = new[] { 10080, 8080, 8899 };
+            
+            // Rango de IPs a escanear (común para cámaras)
+            var ipRanges = new[] { 
+                Enumerable.Range(64, 27),  // 64-90
+                Enumerable.Range(100, 21), // 100-120
+                Enumerable.Range(200, 11)  // 200-210
+            };
+            
+            foreach (var range in ipRanges)
+            {
+                foreach (var lastOctet in range)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    
+                    var ip = $"{subnet}.{lastOctet}";
+                    
+                    foreach (var port in alternativePorts)
+                    {
+                        try
+                        {
+                            using var tcpClient = new System.Net.Sockets.TcpClient();
+                            var connectTask = tcpClient.ConnectAsync(ip, port);
+                            
+                            if (await Task.WhenAny(connectTask, Task.Delay(500, cancellationToken)) == connectTask)
+                            {
+                                if (tcpClient.Connected)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"[ONVIF] Found camera at {ip}:{port}");
+                                    
+                                    if (!discoveredAddresses.Contains(ip))
+                                    {
+                                        var camera = new CameraInfo
+                                        {
+                                            Name = $"ONVIF Camera ({ip}:{port})",
+                                            IpAddress = ip,
+                                            Port = port,
+                                            DeviceId = $"ONVIF-{ip}-{port}",
+                                            LastSeen = DateTime.Now
+                                        };
+                                        
+                                        discoveredAddresses.Add(ip);
+                                        cameras.Add(camera);
+                                        CameraDiscovered?.Invoke(this, camera);
+                                    }
+                                    
+                                    break; // Ya encontramos esta cámara, no probar más puertos
+                                }
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            // Puerto no accesible, continuar
+                        }
+                    }
+                }
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"[ONVIF] Alternative port scan complete. Found {cameras.Count} camera(s)");
+            return cameras;
         }
 
         public void Dispose()
