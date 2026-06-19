@@ -19,24 +19,35 @@ namespace CameraViewer
     {
         private readonly V380Discovery _discovery;
         private readonly OnvifDiscovery _onvifDiscovery;
+        private readonly OnvifPtzService _ptzService;
         private LibVLC? _libVLC;
         private List<CameraView> _cameraViews = new List<CameraView>();
         private int _currentLayout = 1; // 1, 2, 4, or 9
         private CancellationTokenSource? _scanCancellationTokenSource;
         private StreamQuality _globalStreamQuality = StreamQuality.Main; // HD por defecto
-        private readonly OnvifPtzService _ptzService;
         private CameraInfo? _activePtzCamera; // Cámara actualmente controlada por PTZ
         private bool _isDarkTheme = false; // Tema actual (false = claro, true = oscuro)
         private bool _globalAudioMuted = true; // Estado global de audio (true = muted por defecto)
         
-        public MainWindow()
+        /// <summary>
+        /// Constructor with Dependency Injection.
+        /// Services are injected by the DI container.
+        /// </summary>
+        public MainWindow(
+            V380Discovery discovery,
+            OnvifDiscovery onvifDiscovery,
+            OnvifPtzService ptzService)
         {
             InitializeComponent();
-            _discovery = new V380Discovery();
+            
+            // Injected dependencies
+            _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
+            _onvifDiscovery = onvifDiscovery ?? throw new ArgumentNullException(nameof(onvifDiscovery));
+            _ptzService = ptzService ?? throw new ArgumentNullException(nameof(ptzService));
+            
+            // Subscribe to events
             _discovery.CameraDiscovered += OnCameraDiscovered;
-            _onvifDiscovery = new OnvifDiscovery();
             _onvifDiscovery.CameraDiscovered += OnCameraDiscovered;
-            _ptzService = new OnvifPtzService();
             
             // Actualizar texto de velocidad PTZ cuando cambia el slider
             SliderPtzSpeed.ValueChanged += (s, e) => 
