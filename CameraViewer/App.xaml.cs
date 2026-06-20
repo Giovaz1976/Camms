@@ -1,6 +1,9 @@
 using System;
+using System.IO;
 using System.Windows;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using CameraViewer.Configuration;
 using CameraViewer.Interfaces.Configuration;
 using CameraViewer.Interfaces.Discovery;
 using CameraViewer.Interfaces.Logging;
@@ -44,6 +47,25 @@ namespace CameraViewer
 
         private void ConfigureServices(IServiceCollection services)
         {
+            // ===== Configuration =====
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .Build();
+
+            services.AddSingleton<IConfiguration>(configuration);
+
+            // Bind configuration sections to strongly-typed classes
+            var appSettings = new AppSettings();
+            configuration.Bind(appSettings);
+            services.AddSingleton(appSettings);
+            services.AddSingleton(appSettings.OnvifDiscovery);
+            services.AddSingleton(appSettings.Camera);
+            services.AddSingleton(appSettings.Streaming);
+            services.AddSingleton(appSettings.PTZ);
+            services.AddSingleton(appSettings.UI);
+            services.AddSingleton(appSettings.Network);
+
             // ===== Logging =====
             services.AddSingleton<ILogger>(sp => new DebugLogger("[ONVIF]"));
 
