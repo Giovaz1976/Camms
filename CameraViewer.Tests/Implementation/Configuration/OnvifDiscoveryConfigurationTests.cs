@@ -8,8 +8,11 @@ namespace CameraViewer.Tests.Implementation.Configuration
         [Test]
         public void DefaultValues_ShouldBeSet()
         {
+            // Arrange
+            var settings = new CameraViewer.Configuration.OnvifDiscoverySettings();
+            
             // Act
-            var config = new OnvifDiscoveryConfiguration();
+            var config = new OnvifDiscoveryConfiguration(settings);
 
             // Assert
             Assert.That(config.MulticastAddress, Is.EqualTo("239.255.255.250"));
@@ -23,8 +26,11 @@ namespace CameraViewer.Tests.Implementation.Configuration
         [Test]
         public void AlternativePorts_ShouldContainDefaultPorts()
         {
+            // Arrange
+            var settings = new CameraViewer.Configuration.OnvifDiscoverySettings();
+            
             // Act
-            var config = new OnvifDiscoveryConfiguration();
+            var config = new OnvifDiscoveryConfiguration(settings);
 
             // Assert
             Assert.That(config.AlternativePorts, Does.Contain(10080));
@@ -35,8 +41,11 @@ namespace CameraViewer.Tests.Implementation.Configuration
         [Test]
         public void IpRanges_ShouldContainDefaultRanges()
         {
+            // Arrange
+            var settings = new CameraViewer.Configuration.OnvifDiscoverySettings();
+            
             // Act
-            var config = new OnvifDiscoveryConfiguration();
+            var config = new OnvifDiscoveryConfiguration(settings);
 
             // Assert
             Assert.That(config.IpRanges, Has.Length.EqualTo(3));
@@ -46,19 +55,20 @@ namespace CameraViewer.Tests.Implementation.Configuration
         }
 
         [Test]
-        public void Properties_CanBeModified()
+        public void Settings_ShouldReflectChanges()
         {
             // Arrange
-            var config = new OnvifDiscoveryConfiguration();
+            var settings = new CameraViewer.Configuration.OnvifDiscoverySettings
+            {
+                DiscoveryTimeout = 10000,
+                AlternativePorts = new System.Collections.Generic.List<int> { 8000, 9000 }
+            };
 
             // Act
-            config.DiscoveryTimeoutMs = 10000;
-            config.ProbeRetries = 5;
-            config.AlternativePorts = new[] { 8000, 9000 };
+            var config = new OnvifDiscoveryConfiguration(settings);
 
             // Assert
             Assert.That(config.DiscoveryTimeoutMs, Is.EqualTo(10000));
-            Assert.That(config.ProbeRetries, Is.EqualTo(5));
             Assert.That(config.AlternativePorts, Has.Length.EqualTo(2));
         }
     }

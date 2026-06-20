@@ -43,7 +43,10 @@ namespace CameraViewer.Services
             var logger = new DebugLogger("[ONVIF]");
             var messageBuilder = new OnvifSoapMessageBuilder();
             var responseParser = new OnvifResponseParser();
-            var config = new OnvifDiscoveryConfiguration();
+            
+            // Create default settings
+            var settings = new Configuration.OnvifDiscoverySettings();
+            var config = new Implementation.Configuration.OnvifDiscoveryConfiguration(settings);
             var tcpFactory = new Implementation.Network.TcpClientFactory();
 
             // Create discovery implementations

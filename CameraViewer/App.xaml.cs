@@ -80,21 +80,11 @@ namespace CameraViewer
             services.AddSingleton<IOnvifResponseParser, OnvifResponseParser>();
 
             // ===== Configuration =====
-            services.AddSingleton<IOnvifDiscoveryConfiguration>(sp => new OnvifDiscoveryConfiguration
+            // IOnvifDiscoveryConfiguration now uses OnvifDiscoverySettings from appsettings.json
+            services.AddSingleton<IOnvifDiscoveryConfiguration>(sp =>
             {
-                MulticastAddress = "239.255.255.250",
-                MulticastPort = 3702,
-                DiscoveryTimeoutMs = 5000,
-                ProbeRetries = 3,
-                ProbeDelayMs = 100,
-                AlternativePorts = new[] { 10080, 8080, 8899 },
-                IpRanges = new[]
-                {
-                    (64, 27),   // 64-90
-                    (100, 21),  // 100-120
-                    (200, 11)   // 200-210
-                },
-                TcpConnectionTimeoutMs = 500
+                var settings = sp.GetRequiredService<Configuration.OnvifDiscoverySettings>();
+                return new OnvifDiscoveryConfiguration(settings);
             });
 
             // ===== Discovery Services =====
