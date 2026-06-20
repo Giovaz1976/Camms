@@ -91,6 +91,9 @@ namespace CameraViewer
             services.AddTransient<V380Discovery>();
             services.AddTransient<OnvifPtzService>();
 
+            // ===== ViewModels =====
+            services.AddTransient<ViewModels.MainViewModel>();
+
             // ===== Views =====
             services.AddTransient<MainWindow>();
         }
