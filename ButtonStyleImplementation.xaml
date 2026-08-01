@@ -1,0 +1,207 @@
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     BUTTON STYLE IMPLEMENTATION
+     
+     Copia este código dentro de <Window.Resources> en MainWindow.xaml
+     justo después de los SolidColorBrush existentes
+     ═══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PASO 1: Definir colores para botones
+     ═══════════════════════════════════════════════════════════════════════ -->
+<SolidColorBrush x:Key="ButtonEnabledBackground" Color="#3498DB"/>      <!-- Azul medio -->
+<SolidColorBrush x:Key="ButtonHoverBackground" Color="#417A9B"/>        <!-- Azul hover -->
+<SolidColorBrush x:Key="ButtonPressedBackground" Color="#2C5F7A"/>      <!-- Azul pressed -->
+<SolidColorBrush x:Key="ButtonDisabledBackground" Color="#1B2838"/>     <!-- Azul gris oscuro -->
+<SolidColorBrush x:Key="ButtonDisabledBorder" Color="#66C0F4"/>         <!-- Azul Steam -->
+<SolidColorBrush x:Key="ButtonDisabledForeground" Color="#66C0F4"/>     <!-- Texto azul -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PASO 2: Style global para todos los botones
+     ═══════════════════════════════════════════════════════════════════════ -->
+<Style TargetType="Button">
+    <Setter Property="Background" Value="{StaticResource ButtonEnabledBackground}"/>
+    <Setter Property="Foreground" Value="White"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="FontWeight" Value="Bold"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Padding" Value="10,5"/>
+    <Setter Property="Template">
+        <Setter.Value>
+            <ControlTemplate TargetType="Button">
+                <Border x:Name="border"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="3">
+                    <!-- Sombra sutil -->
+                    <Border.Effect>
+                        <DropShadowEffect Color="Black" 
+                                        Direction="270" 
+                                        ShadowDepth="2" 
+                                        Opacity="0.25" 
+                                        BlurRadius="4"/>
+                    </Border.Effect>
+                    
+                    <ContentPresenter HorizontalAlignment="Center" 
+                                    VerticalAlignment="Center"
+                                    Margin="{TemplateBinding Padding}"
+                                    TextBlock.Foreground="{TemplateBinding Foreground}"/>
+                </Border>
+                
+                <ControlTemplate.Triggers>
+                    <!-- ═══════════════════════════════════════════════════
+                         ESTADO: DISABLED (Botón desactivado)
+                         ═══════════════════════════════════════════════ -->
+                    <Trigger Property="IsEnabled" Value="False">
+                        <!-- Fondo azul gris oscuro -->
+                        <Setter TargetName="border" Property="Background" 
+                                Value="{StaticResource ButtonDisabledBackground}"/>
+                        
+                        <!-- Borde azul brillante -->
+                        <Setter TargetName="border" Property="BorderBrush" 
+                                Value="{StaticResource ButtonDisabledBorder}"/>
+                        
+                        <!-- Grosor de borde 2px -->
+                        <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                        
+                        <!-- Texto azul -->
+                        <Setter Property="Foreground" 
+                                Value="{StaticResource ButtonDisabledForeground}"/>
+                        
+                        <!-- Opacidad reducida -->
+                        <Setter Property="Opacity" Value="0.65"/>
+                    </Trigger>
+                    
+                    <!-- ═══════════════════════════════════════════════════
+                         ESTADO: HOVER (Mouse sobre el botón)
+                         SOLO cuando el botón está ENABLED
+                         ═══════════════════════════════════════════════ -->
+                    <MultiTrigger>
+                        <MultiTrigger.Conditions>
+                            <Condition Property="IsMouseOver" Value="True"/>
+                            <Condition Property="IsEnabled" Value="True"/>
+                        </MultiTrigger.Conditions>
+                        
+                        <!-- Fondo azul más claro -->
+                        <Setter TargetName="border" Property="Background" 
+                                Value="{StaticResource ButtonHoverBackground}"/>
+                        
+                        <!-- Borde azul Steam -->
+                        <Setter TargetName="border" Property="BorderBrush" 
+                                Value="{StaticResource ButtonDisabledBorder}"/>
+                        
+                        <Setter TargetName="border" Property="BorderThickness" Value="1"/>
+                    </MultiTrigger>
+                    
+                    <!-- ═══════════════════════════════════════════════════
+                         ESTADO: PRESSED (Botón presionado)
+                         ═══════════════════════════════════════════════ -->
+                    <Trigger Property="IsPressed" Value="True">
+                        <!-- Fondo azul oscuro -->
+                        <Setter TargetName="border" Property="Background" 
+                                Value="{StaticResource ButtonPressedBackground}"/>
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+        </Setter.Value>
+    </Setter>
+</Style>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PASO 3: Styles específicos para botones especiales (OPCIONAL)
+     ═══════════════════════════════════════════════════════════════════════ -->
+
+<!-- Style para botón de peligro (Exit, Delete, etc) -->
+<Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Background" Value="#E74C3C"/>
+    <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+            <Setter Property="Background" Value="#C0392B"/>
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+            <Setter Property="Background" Value="#1B2838"/>
+            <Setter Property="BorderBrush" Value="#E74C3C"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Foreground" Value="#E74C3C"/>
+        </Trigger>
+    </Style.Triggers>
+</Style>
+
+<!-- Style para botón de éxito (Add, Save, etc) -->
+<Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Background" Value="#16A085"/>
+    <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+            <Setter Property="Background" Value="#1ABC9C"/>
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+            <Setter Property="Background" Value="#1B2838"/>
+            <Setter Property="BorderBrush" Value="#16A085"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Foreground" Value="#16A085"/>
+        </Trigger>
+    </Style.Triggers>
+</Style>
+
+<!-- Style para botón de acción (Record, etc) -->
+<Style x:Key="ActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Background" Value="#9B59B6"/>
+    <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+            <Setter Property="Background" Value="#8E44AD"/>
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+            <Setter Property="Background" Value="#1B2838"/>
+            <Setter Property="BorderBrush" Value="#9B59B6"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Foreground" Value="#9B59B6"/>
+        </Trigger>
+    </Style.Triggers>
+</Style>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PASO 4: Ejemplos de uso
+     ═══════════════════════════════════════════════════════════════════════ -->
+
+<!--
+BOTÓN NORMAL (usa el style global automáticamente):
+<Button x:Name="BtnScanCameras" Content="🔍 Scan Cameras" 
+        Width="120" Height="35" Margin="5"/>
+
+BOTÓN DE PELIGRO:
+<Button x:Name="BtnExit" Content="✕ Exit" 
+        Style="{StaticResource DangerButton}"
+        Width="80" Height="35" Margin="5"/>
+
+BOTÓN DE ÉXITO:
+<Button x:Name="BtnAddCamera" Content="➕ Add Camera" 
+        Style="{StaticResource SuccessButton}"
+        Width="110" Height="35" Margin="5"/>
+
+BOTÓN DE ACCIÓN:
+<Button x:Name="BtnRecord" Content="⏺ Record" 
+        Style="{StaticResource ActionButton}"
+        Width="90" Height="35" Margin="5"/>
+
+DESHABILITAR BOTÓN:
+<Button x:Name="BtnScanCameras" Content="🔍 Scan Cameras" 
+        IsEnabled="False"
+        Width="120" Height="35" Margin="5"/>
+-->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     NOTAS DE IMPLEMENTACIÓN
+     
+     1. Este style se aplica AUTOMÁTICAMENTE a todos los Button en la ventana
+     
+     2. Para deshabilitar un botón, solo usa: IsEnabled="False"
+     
+     3. Para usar un style específico, usa: Style="{StaticResource NombreDelStyle}"
+     
+     4. Para ignorar el style global en un botón específico, usa: Style="{x:Null}"
+     
+     5. Puedes sobrescribir propiedades individuales:
+        <Button Background="Red" .../> ← Ignora el color del style
+        
+     ═══════════════════════════════════════════════════════════════════════ -->

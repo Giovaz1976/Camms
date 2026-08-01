@@ -2,6 +2,23 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
-         
+        <!-- ═══════════════════════════════════════════════════════════
+             RESOURCE DICTIONARIES - Following SOLID Principles
+             
+             Dependency Inversion: La aplicación depende de abstracciones
+             (estilos) definidas en recursos separados, no de implementaciones
+             concretas en cada control.
+             ═══════════════════════════════════════════════════════ -->
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Button Styles - Single Responsibility -->
+                <ResourceDictionary Source="pack://application:,,,/Styles/ButtonStyles.xaml"/>
+                
+                <!-- Aquí se pueden agregar más ResourceDictionaries en el futuro:
+                     - TextBoxStyles.xaml
+                     - ListBoxStyles.xaml
+                     - etc. -->
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

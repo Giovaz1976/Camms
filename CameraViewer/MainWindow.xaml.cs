@@ -754,15 +754,15 @@ namespace CameraViewer
                 // Panel superior
                 TopPanel.Background = new SolidColorBrush(Color.FromRgb(23, 26, 33)); // #171A21
                 
-                // Panel de lista de cámaras
-                CameraListPanel.Background = new SolidColorBrush(Color.FromRgb(27, 40, 56)); // #1B2838
-                CameraListPanel.BorderBrush = new SolidColorBrush(Color.FromRgb(61, 68, 80)); // #3D4450
+                // Panel de lista de cámaras - MANTENER CONSISTENTE
+                CameraListPanel.Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50
+                CameraListPanel.BorderBrush = new SolidColorBrush(Color.FromRgb(26, 37, 47)); // #1A252F
                 
-                // Título de lista
-                TxtCameraListTitle.Foreground = new SolidColorBrush(Color.FromRgb(199, 213, 224)); // #C7D5E0
+                // Título de lista - BLANCO
+                TxtCameraListTitle.Foreground = new SolidColorBrush(Colors.White);
                 
-                // Lista de cámaras
-                LstCameras.Background = new SolidColorBrush(Color.FromRgb(23, 26, 33)); // #171A21
+                // Lista de cámaras - MANTENER CONSISTENTE
+                LstCameras.Background = new SolidColorBrush(Color.FromRgb(52, 73, 94)); // #34495E
                 
                 // Panel PTZ
                 PtzPanel.Background = new SolidColorBrush(Color.FromRgb(23, 26, 33)); // #171A21
@@ -780,19 +780,19 @@ namespace CameraViewer
             }
             else
             {
-                // Aplicar tema claro (original)
+                // Aplicar tema claro (manteniendo paneles oscuros por diseño)
                 // Panel superior
                 TopPanel.Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50
                 
-                // Panel de lista de cámaras
-                CameraListPanel.Background = new SolidColorBrush(Color.FromRgb(236, 240, 241)); // #ECF0F1
-                CameraListPanel.BorderBrush = new SolidColorBrush(Color.FromRgb(189, 195, 199)); // #BDC3C7
+                // Panel de lista de cámaras - MANTENER OSCURO
+                CameraListPanel.Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50
+                CameraListPanel.BorderBrush = new SolidColorBrush(Color.FromRgb(26, 37, 47)); // #1A252F
                 
-                // Título de lista
-                TxtCameraListTitle.Foreground = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50
+                // Título de lista - MANTENER BLANCO
+                TxtCameraListTitle.Foreground = new SolidColorBrush(Colors.White);
                 
-                // Lista de cámaras
-                LstCameras.Background = new SolidColorBrush(Colors.White);
+                // Lista de cámaras - MANTENER OSCURO
+                LstCameras.Background = new SolidColorBrush(Color.FromRgb(52, 73, 94)); // #34495E
                 
                 // Panel PTZ
                 PtzPanel.Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50

@@ -1,0 +1,267 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <!-- ═══════════════════════════════════════════════════════════════════════════
+         BUTTON STYLES - Following SOLID Principles
+         
+         Single Responsibility: Este archivo solo maneja estilos de botones
+         Open/Closed: Estilos base que pueden ser extendidos sin modificación
+         Liskov Substitution: Estilos derivados pueden reemplazar al base
+         Interface Segregation: Estilos específicos para diferentes tipos
+         Dependency Inversion: Botones dependen de abstracciones (estilos)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    
+    <!-- ═══════════════════════════════════════════════════════════════════════════
+         COLOR PALETTE - Centralized color management
+         ═══════════════════════════════════════════════════════════════════════ -->
+    
+    <!-- Base Button Colors - Matching Layout Button Style -->
+    <SolidColorBrush x:Key="ButtonEnabledBackground" Color="#34495E"/>  <!-- Gris oscuro -->
+    <SolidColorBrush x:Key="ButtonEnabledForeground" Color="White"/>
+    <SolidColorBrush x:Key="ButtonEnabledBorder" Color="Transparent"/>
+    
+    <!-- Hover State -->
+    <SolidColorBrush x:Key="ButtonHoverBackground" Color="#2C3E50"/>    <!-- Gris más oscuro al hover -->
+    <SolidColorBrush x:Key="ButtonHoverBorder" Color="#66C0F4"/>
+    
+    <!-- Pressed State -->
+    <SolidColorBrush x:Key="ButtonPressedBackground" Color="#2C5F7A"/>
+    
+    <!-- Disabled State -->
+    <SolidColorBrush x:Key="ButtonDisabledBackground" Color="#1B2838"/>
+    <SolidColorBrush x:Key="ButtonDisabledBorder" Color="#66C0F4"/>
+    <SolidColorBrush x:Key="ButtonDisabledForeground" Color="#66C0F4"/>
+    
+    <!-- Specialized Button Colors -->
+    <SolidColorBrush x:Key="SuccessColor" Color="#16A085"/>
+    <SolidColorBrush x:Key="SuccessHoverColor" Color="#1ABC9C"/>
+    <SolidColorBrush x:Key="DangerColor" Color="#E74C3C"/>
+    <SolidColorBrush x:Key="DangerHoverColor" Color="#C0392B"/>
+    <SolidColorBrush x:Key="ActionColor" Color="#9B59B6"/>
+    <SolidColorBrush x:Key="ActionHoverColor" Color="#8E44AD"/>
+    
+    <!-- ═══════════════════════════════════════════════════════════════════════════
+         BASE BUTTON TEMPLATE - Open/Closed Principle
+         Define una vez, extiende sin modificar
+         ═══════════════════════════════════════════════════════════════════════ -->
+    
+    <ControlTemplate x:Key="BaseButtonTemplate" TargetType="Button">
+        <Border x:Name="border"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="3">
+            <!-- Subtle shadow effect -->
+            <Border.Effect>
+                <DropShadowEffect Color="Black" 
+                                Direction="270" 
+                                ShadowDepth="2" 
+                                Opacity="0.25" 
+                                BlurRadius="4"/>
+            </Border.Effect>
+            
+            <ContentPresenter HorizontalAlignment="Center" 
+                            VerticalAlignment="Center"
+                            Margin="{TemplateBinding Padding}"
+                            TextBlock.Foreground="{TemplateBinding Foreground}"/>
+        </Border>
+        
+        <ControlTemplate.Triggers>
+            <!-- DISABLED STATE - SRP: Maneja solo el estado disabled -->
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="border" Property="Background" 
+                        Value="{StaticResource ButtonDisabledBackground}"/>
+                <Setter TargetName="border" Property="BorderBrush" 
+                        Value="{StaticResource ButtonDisabledBorder}"/>
+                <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                <Setter Property="Foreground" 
+                        Value="{StaticResource ButtonDisabledForeground}"/>
+                <Setter Property="Opacity" Value="0.65"/>
+            </Trigger>
+            
+            <!-- HOVER STATE - Solo cuando está enabled -->
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                    <Condition Property="IsEnabled" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter TargetName="border" Property="Background" 
+                        Value="{StaticResource ButtonHoverBackground}"/>
+                <Setter TargetName="border" Property="BorderBrush" 
+                        Value="{StaticResource ButtonHoverBorder}"/>
+                <Setter TargetName="border" Property="BorderThickness" Value="1"/>
+            </MultiTrigger>
+            
+            <!-- PRESSED STATE -->
+            <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="border" Property="Background" 
+                        Value="{StaticResource ButtonPressedBackground}"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+    
+    <!-- ═══════════════════════════════════════════════════════════════════════════
+         DEFAULT BUTTON STYLE - Base implementation
+         Liskov Substitution: Puede ser reemplazado por cualquier estilo derivado
+         ═══════════════════════════════════════════════════════════════════════ -->
+    
+    <Style x:Key="BaseButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{StaticResource ButtonEnabledBackground}"/>
+        <Setter Property="Foreground" Value="{StaticResource ButtonEnabledForeground}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource ButtonEnabledBorder}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Padding" Value="10,5"/>
+        <Setter Property="Template" Value="{StaticResource BaseButtonTemplate}"/>
+    </Style>
+    
+    <!-- Default style aplicado automáticamente a todos los Button -->
+    <Style TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}"/>
+    
+    <!-- ═══════════════════════════════════════════════════════════════════════════
+         SPECIALIZED BUTTON STYLES - Interface Segregation Principle
+         Estilos específicos para diferentes tipos de botones
+         ═══════════════════════════════════════════════════════════════════════ -->
+    
+    <!-- SUCCESS BUTTON - Para acciones positivas (Add, Save, Confirm) -->
+    <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+        <Setter Property="Background" Value="{StaticResource SuccessColor}"/>
+        <Style.Triggers>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                    <Condition Property="IsEnabled" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="{StaticResource SuccessHoverColor}"/>
+            </MultiTrigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="{StaticResource ButtonDisabledBackground}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource SuccessColor}"/>
+                <Setter Property="BorderThickness" Value="2"/>
+                <Setter Property="Foreground" Value="{StaticResource SuccessColor}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    
+    <!-- DANGER BUTTON - Para acciones destructivas (Delete, Exit, Cancel) -->
+    <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+        <Setter Property="Background" Value="{StaticResource DangerColor}"/>
+        <Style.Triggers>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                    <Condition Property="IsEnabled" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="{StaticResource DangerHoverColor}"/>
+            </MultiTrigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="{StaticResource ButtonDisabledBackground}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource DangerColor}"/>
+                <Setter Property="BorderThickness" Value="2"/>
+                <Setter Property="Foreground" Value="{StaticResource DangerColor}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    
+    <!-- ACTION BUTTON - Para acciones especiales (Record, PTZ, Settings) -->
+    <Style x:Key="ActionButton" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+        <Setter Property="Background" Value="{StaticResource ActionColor}"/>
+        <Style.Triggers>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                    <Condition Property="IsEnabled" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="{StaticResource ActionHoverColor}"/>
+            </MultiTrigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="{StaticResource ButtonDisabledBackground}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource ActionColor}"/>
+                <Setter Property="BorderThickness" Value="2"/>
+                <Setter Property="Foreground" Value="{StaticResource ActionColor}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    
+    <!-- ═══════════════════════════════════════════════════════════════════════════
+         LAYOUT BUTTON STYLE - Para botones de selección de layout
+         ═══════════════════════════════════════════════════════════════════════ -->
+    
+    <Style x:Key="LayoutButton" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+        <Setter Property="Width" Value="35"/>
+        <Setter Property="Height" Value="35"/>
+        <Setter Property="Margin" Value="2"/>
+        <Setter Property="Background" Value="#34495E"/>
+        <Style.Triggers>
+            <!-- Active layout (usando Tag="Active") -->
+            <Trigger Property="Tag" Value="Active">
+                <Setter Property="Background" Value="#27AE60"/>
+            </Trigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                    <Condition Property="IsEnabled" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="#2C3E50"/>
+            </MultiTrigger>
+        </Style.Triggers>
+    </Style>
+    
+    <!-- ═══════════════════════════════════════════════════════════════════════════
+         PTZ CONTROL BUTTON STYLE - Para controles PTZ
+         ═══════════════════════════════════════════════════════════════════════ -->
+    
+    <Style x:Key="PtzControlButton" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+        <Setter Property="Width" Value="40"/>
+        <Setter Property="Height" Value="40"/>
+        <Setter Property="FontSize" Value="18"/>
+        <Setter Property="Background" Value="{StaticResource ButtonEnabledBackground}"/>
+    </Style>
+    
+    <!-- ═══════════════════════════════════════════════════════════════════════════
+         LISTBOX ITEM STYLE - Para lista de cámaras con tema oscuro
+         ═══════════════════════════════════════════════════════════════════════ -->
+    
+    <Style TargetType="ListBoxItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="Padding" Value="5"/>
+        <Setter Property="Margin" Value="2"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="Transparent"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- Hover -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="border" Property="Background" Value="#2C3E50"/>
+                            <Setter TargetName="border" Property="BorderBrush" Value="#66C0F4"/>
+                        </Trigger>
+                        <!-- Selected -->
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="border" Property="Background" Value="#3498DB"/>
+                            <Setter TargetName="border" Property="BorderBrush" Value="#66C0F4"/>
+                        </Trigger>
+                        <!-- Selected + Hover -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsSelected" Value="True"/>
+                                <Condition Property="IsMouseOver" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="border" Property="Background" Value="#417A9B"/>
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    
+</ResourceDictionary>
