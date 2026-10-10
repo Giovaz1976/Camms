@@ -1997,6 +1997,24 @@ namespace CameraViewer
         {
             TogglePtzPanel();
         }
+
+        private void BtnToggleCameraList_Click(object sender, RoutedEventArgs e)
+        {
+            bool isVisible = CameraListPanel.Visibility == Visibility.Visible;
+
+            if (isVisible)
+            {
+                CameraListPanel.Visibility = Visibility.Collapsed;
+                ColCameraList.Width = new GridLength(0);
+                BtnToggleCameraList.Content = "📋 Show List";
+            }
+            else
+            {
+                CameraListPanel.Visibility = Visibility.Visible;
+                ColCameraList.Width = new GridLength(250);
+                BtnToggleCameraList.Content = "📋 Hide List";
+            }
+        }
         
         private void TogglePtzPanel()
         {
