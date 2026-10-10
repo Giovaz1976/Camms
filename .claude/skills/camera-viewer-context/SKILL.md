@@ -149,6 +149,44 @@ del flujo original de selección múltiple en `LstCameras` (`LstCameras_Selectio
   reacomodo manual se pierde. No se intentó resolver esto (requeriría distinguir "modo manual" vs
   "modo por selección"); tenerlo en cuenta si se pide hacer convivir ambos flujos.
 
+## Cierre de la aplicación (liberar conexiones a las cámaras)
+
+`MainWindow.xaml.cs` centraliza todo el apagado en **`CleanupResources()`**, invocado tanto desde
+`Window_Closing` como desde `OnClosed` (ésta última como red de seguridad; es idempotente vía el
+flag `_isDisposing`). Antes había dos métodos separados y duplicados con lógica contradictoria —
+`Window_Closing` llegaba a disponer `_libVLC` explícitamente mientras `OnClosed` evitaba
+disponerlo a propósito ("para evitar un AccessViolationException") — lo que en realidad invertía
+el orden correcto de LibVLCSharp (hay que detener/disponer **todos** los `MediaPlayer` antes de
+disponer el `LibVLC` del que dependen, nunca al revés).
+
+- **Orden correcto ya aplicado en `CleanupResources()`**: cancelar scan en curso → detener
+  grabaciones *sin reiniciar el stream* (`StopAllRecordings(restartStream: false)`, ver abajo) →
+  `MediaPlayer.Stop()` de cada panel (dispara el TEARDOWN RTSP hacia la cámara) → pausa de 200ms →
+  `Dispose()` de cada `Media`/`MediaPlayer` → sólo entonces `_libVLC.Dispose()` → por último
+  `_discovery` (V380), `_onvifDiscovery` y `_ptzService` (cierran sus sockets UDP/HttpClient).
+- **`StopAllRecordings(bool restartStream = true)`**: el uso normal (toggle del botón Record)
+  reinicia el stream sin las opciones de grabación para seguir viendo en vivo — eso requiere
+  volver a llamar `StartCamera`. Al cerrar la ventana eso es contraproducente (abriría conexiones
+  nuevas mientras se intenta cerrar todo), por eso el cierre pasa `restartStream: false`.
+- **Bug encontrado y corregido — proceso zombie al cerrar con una conexión en curso**: si se
+  cierra la ventana mientras `StartCamera` sigue esperando una respuesta ONVIF (`await
+  _ptzService.GetProfileTokenAsync(...)` / `GetRtspUrlAsync(...)`), esa continuación reanuda en el
+  Dispatcher *después* de `CleanupResources()`, con `_libVLC` ya en `null` — y caía en
+  `MessageBox.Show("LibVLC no está inicializado", ...)`, un diálogo modal sin ventana dueña visible
+  que dejaba el proceso colgado indefinidamente (visible en `tasklist`, sin nada en pantalla;
+  reproducido y confirmado con `EnumWindows` encontrando un hwnd `visible=True title='Error'`
+  huérfano). Fix: `StartCamera` ahora chequea `_isDisposing` al entrar y de nuevo justo después de
+  los `await`, retornando en silencio si la app ya está cerrando — sin tocar `MediaPlayer`/mostrar
+  diálogos. Al reproducir este escenario (agregar cámara con IP inalcanzable, seleccionarla, y
+  cerrar la ventana de inmediato mientras el ONVIF sigue en vuelo) es la forma más fácil de
+  verificar una regresión aquí.
+- **Ruido cosmético conocido, no corregido**: `OnvifPtzService.GetProfileTokenAsync` prueba varios
+  endpoints/puertos secuencialmente con su propio try/catch interno; si la ventana se cierra a
+  mitad de esa secuencia, los intentos restantes loguean `Cannot access a disposed object` (su
+  `HttpClient` ya fue disposed por `CleanupResources()`) antes de terminar. No crashea ni cuelga el
+  cierre, solo ensucia la consola. Si se quiere eliminar del todo, habría que enhebrar un
+  `CancellationToken` a través de `StartCamera` → `GetProfileTokenAsync`/`GetRtspUrlAsync`.
+
 ## Deuda técnica conocida (documentada por el propio repo, no inferida)
 
 `SOLID_ANALYSIS.md` da una autoevaluación con nota general 6/10:

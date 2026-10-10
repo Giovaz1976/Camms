@@ -97,29 +97,82 @@ namespace CameraViewer
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            // Cancelar cualquier escaneo en progreso
-            if (_scanCancellationTokenSource != null && !_scanCancellationTokenSource.IsCancellationRequested)
+            CleanupResources();
+        }
+
+        /// <summary>
+        /// Libera, en el orden correcto, todas las conexiones activas hacia las cámaras:
+        /// detiene cada MediaPlayer (lo que dispara el TEARDOWN de RTSP hacia la cámara),
+        /// los dispone junto con su Media, y solo DESPUÉS dispone el LibVLC core del que
+        /// dependen. Disponer _libVLC antes de que sus MediaPlayers estén detenidos/disponibles
+        /// es lo que antes causaba un AccessViolationException nativo. Idempotente vía
+        /// _isDisposing porque tanto Window_Closing como OnClosed la invocan (por si el cierre
+        /// no dispara Closing, p. ej. al matar el proceso).
+        /// </summary>
+        private void CleanupResources()
+        {
+            if (_isDisposing)
+                return;
+            _isDisposing = true;
+
+            try
             {
-                Console.WriteLine("Cancelling scan due to window closing...");
-                _scanCancellationTokenSource.Cancel();
+                // 1. Cancelar cualquier escaneo en progreso
+                if (_scanCancellationTokenSource != null && !_scanCancellationTokenSource.IsCancellationRequested)
+                {
+                    Console.WriteLine("Cancelling scan due to window closing...");
+                    _scanCancellationTokenSource.Cancel();
+                }
+
+                // 2. Detener grabaciones SIN reiniciar el stream (la app se está cerrando,
+                // no tiene sentido reconectar para seguir viendo en vivo)
+                Console.WriteLine("Stopping all recordings...");
+                StopAllRecordings(restartStream: false);
+
+                // 3. Detener reproducción de cada panel (dispara el TEARDOWN RTSP hacia cada cámara)
+                Console.WriteLine("Stopping all cameras...");
+                foreach (var view in _cameraViews)
+                {
+                    try { view.MediaPlayer?.Stop(); }
+                    catch (Exception ex) { Console.WriteLine($"Error stopping camera: {ex.Message}"); }
+                }
+
+                // Dar tiempo a LibVLC para completar el teardown de red antes de disponer
+                System.Threading.Thread.Sleep(200);
+
+                // 4. Disponer Media y MediaPlayer de cada panel
+                foreach (var view in _cameraViews)
+                {
+                    try
+                    {
+                        view.CurrentMedia?.Dispose();
+                        view.MediaPlayer?.Dispose();
+                    }
+                    catch (Exception ex) { Console.WriteLine($"Error disposing camera view: {ex.Message}"); }
+                }
+                _cameraViews.Clear();
+
+                // 5. Disponer el LibVLC core solo después de que ya no quede ningún
+                // MediaPlayer vivo que dependa de él
+                try
+                {
+                    Console.WriteLine("Disposing LibVLC...");
+                    _libVLC?.Dispose();
+                }
+                catch (Exception ex) { Console.WriteLine($"Error disposing LibVLC: {ex.Message}"); }
+                _libVLC = null;
+
+                // 6. Disponer servicios de discovery/PTZ (cierran sus sockets UDP/HTTP)
+                try { _discovery?.Dispose(); } catch (Exception ex) { Console.WriteLine($"Error disposing V380Discovery: {ex.Message}"); }
+                try { _onvifDiscovery?.Dispose(); } catch (Exception ex) { Console.WriteLine($"Error disposing OnvifDiscovery: {ex.Message}"); }
+                try { _ptzService?.Dispose(); } catch (Exception ex) { Console.WriteLine($"Error disposing OnvifPtzService: {ex.Message}"); }
+
+                Console.WriteLine("All camera connections released, window closed successfully.");
             }
-            
-            // Detener todas las grabaciones primero
-            Console.WriteLine("Stopping all recordings...");
-            StopAllRecordings();
-            
-            // Limpiar recursos
-            Console.WriteLine("Stopping all cameras...");
-            StopAllCameras();
-            
-            Console.WriteLine("Disposing LibVLC...");
-            _libVLC?.Dispose();
-            
-            // Limpiar servicios
-            _ptzService?.Dispose();
-            _onvifDiscovery?.Dispose();
-            
-            Console.WriteLine("Window closed successfully");
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error during cleanup: {ex.Message}");
+            }
         }
 
         private async void BtnScanCameras_Click(object sender, RoutedEventArgs e)
@@ -638,6 +691,13 @@ namespace CameraViewer
         
         private async void StartCamera(CameraView cameraView, CameraInfo camera, StreamQuality? quality = null)
         {
+            // Evita que una llamada "fire-and-forget" en vuelo (p. ej. esperando una respuesta
+            // ONVIF que nunca llega) reanude su continuación después de que la ventana ya empezó
+            // a cerrarse: antes esto podía abrir un MessageBox sin dueño tras CleanupResources(),
+            // dejando el proceso colgado (visible en tasklist, sin ninguna ventana a la vista).
+            if (_isDisposing)
+                return;
+
             try
             {
                 cameraView.Camera = camera;
@@ -710,12 +770,18 @@ namespace CameraViewer
                     rtspUrl = $"rtsp://{credentials}{camera.IpAddress}/live/ch00_{channel}";
                 }
                 
+                // La ventana pudo haberse empezado a cerrar mientras esperábamos las llamadas
+                // ONVIF de arriba (await). Si ya estamos limpiando recursos, no intentar
+                // reproducir ni mostrar diálogos: _libVLC puede estar disponiéndose o ya en null.
+                if (_isDisposing)
+                    return;
+
                 if (_libVLC == null)
                 {
                     MessageBox.Show("LibVLC no está inicializado", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
-                
+
                 var media = new Media(_libVLC, new Uri(rtspUrl));
                 cameraView.CurrentMedia = media;
                 cameraView.MediaPlayer.Play(media);
@@ -1205,28 +1271,35 @@ namespace CameraViewer
             return $"rtsp://{credentials}{camera.IpAddress}/live/ch00_{channel}";
         }
         
-        private void StopAllRecordings()
+        /// <summary>
+        /// Detiene las grabaciones activas. Por defecto reinicia el stream sin las opciones de
+        /// grabación para seguir viendo la cámara en vivo (uso normal desde BtnRecord_Click).
+        /// Con restartStream=false (cierre de la app) NO reconecta nada — el llamador se encarga
+        /// de detener/disponer los MediaPlayer justo después; reiniciar streams al cerrar la
+        /// ventana abriría conexiones nuevas justo cuando se está intentando cerrar todo.
+        /// </summary>
+        private void StopAllRecordings(bool restartStream = true)
         {
             var recordingCameras = _cameraViews.Where(v => v.IsRecording).ToList();
-            
+
             foreach (var cameraView in recordingCameras)
             {
                 try
                 {
                     cameraView.IsRecording = false;
-                    
+
                     if (!string.IsNullOrEmpty(cameraView.RecordingPath))
                     {
                         Console.WriteLine($"✓ Recording stopped: {cameraView.RecordingPath}");
-                        
-                        // Reiniciar el stream para detener la grabación
-                        if (cameraView.Camera != null)
+
+                        if (restartStream && cameraView.Camera != null)
                         {
+                            // Reiniciar el stream sin las opciones de grabación para seguir viendo en vivo
                             cameraView.MediaPlayer?.Stop();
                             cameraView.CurrentMedia?.Dispose();
                             StartCamera(cameraView, cameraView.Camera);
                         }
-                        
+
                         cameraView.RecordingPath = null;
                     }
                 }
@@ -2239,67 +2312,13 @@ namespace CameraViewer
         }
 
         private bool _isDisposing = false;
-        
+
         protected override void OnClosed(EventArgs e)
         {
-            if (_isDisposing)
-                return;
-                
-            _isDisposing = true;
-            
-            try
-            {
-                // 1. Detener todos los streams primero
-                foreach (var view in _cameraViews)
-                {
-                    try
-                    {
-                        view.MediaPlayer?.Stop();
-                    }
-                    catch { }
-                }
-                
-                // 2. Pequeña pausa
-                System.Threading.Thread.Sleep(200);
-                
-                // 3. Disponer MediaPlayers
-                foreach (var view in _cameraViews)
-                {
-                    try
-                    {
-                        view.MediaPlayer?.Dispose();
-                    }
-                    catch { }
-                }
-                
-                // 4. Limpiar lista
-                _cameraViews.Clear();
-                
-                // 5. NO disponer LibVLC explícitamente - dejar que el GC lo maneje
-                // Esto evita el AccessViolationException
-                _libVLC = null;
-                
-                // 6. Disponer servicios
-                try
-                {
-                    _discovery?.Dispose();
-                }
-                catch { }
-                
-                try
-                {
-                    _ptzService?.Dispose();
-                }
-                catch { }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error in OnClosed: {ex.Message}");
-            }
-            finally
-            {
-                base.OnClosed(e);
-            }
+            // Red de seguridad: si por algún motivo Window_Closing no llegó a ejecutarse,
+            // CleanupResources() es idempotente (guardia _isDisposing) así que no duplica trabajo.
+            CleanupResources();
+            base.OnClosed(e);
         }
     }
 }
