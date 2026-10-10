@@ -85,11 +85,11 @@
                 </StackPanel>
                 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <!-- Theme Button - Default style -->
-                    <Button x:Name="BtnTheme" Content="🌙 Dark" 
-                            Width="80" Height="35" Margin="5,2,15,2" 
-                            Click="BtnTheme_Click" 
-                            ToolTip="Toggle Steam Dark Theme"/>
+                    <!-- Theme Button - Dark theme activo por defecto; el clic cambia al tema normal -->
+                    <Button x:Name="BtnTheme" Content="☀️ Normal"
+                            Width="80" Height="35" Margin="5,2,15,2"
+                            Click="BtnTheme_Click"
+                            ToolTip="Cambiar al tema normal"/>
                     
                     <TextBlock Text="Layout:" VerticalAlignment="Center" Foreground="White" Margin="5,0"/>
                     

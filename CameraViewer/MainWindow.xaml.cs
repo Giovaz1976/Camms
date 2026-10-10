@@ -28,7 +28,7 @@ namespace CameraViewer
         private CancellationTokenSource? _scanCancellationTokenSource;
         private StreamQuality _globalStreamQuality = StreamQuality.Main; // HD por defecto
         private CameraInfo? _activePtzCamera; // Cámara actualmente controlada por PTZ
-        private bool _isDarkTheme = false; // Tema actual (false = claro, true = oscuro)
+        private bool _isDarkTheme = true; // Tema actual (false = normal, true = oscuro). Oscuro por defecto.
         private bool _globalAudioMuted = true; // Estado global de audio (true = muted por defecto)
         
         /// <summary>
@@ -87,6 +87,9 @@ namespace CameraViewer
             
             _libVLC = new LibVLC(options);
             SetupGridLayout(_currentLayout);
+
+            // Aplicar tema oscuro por defecto al iniciar la ventana
+            ApplyTheme(_isDarkTheme);
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -772,15 +775,15 @@ namespace CameraViewer
                 BtnLayout4.Background = new SolidColorBrush(Color.FromRgb(42, 71, 94)); // #2A475E
                 BtnLayout9.Background = new SolidColorBrush(Color.FromRgb(42, 71, 94)); // #2A475E
                 
-                // Actualizar botón de tema
-                BtnTheme.Content = "☀️ Light";
+                // Actualizar botón de tema (clic -> vuelve al tema normal)
+                BtnTheme.Content = "☀️ Normal";
                 BtnTheme.Background = new SolidColorBrush(Color.FromRgb(102, 192, 244)); // SteamBlue
-                
+
                 Console.WriteLine("✓ Steam Dark Theme activated");
             }
             else
             {
-                // Aplicar tema claro (manteniendo paneles oscuros por diseño)
+                // Aplicar tema normal (manteniendo paneles oscuros por diseño)
                 // Panel superior
                 TopPanel.Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)); // #2C3E50
                 
@@ -802,11 +805,11 @@ namespace CameraViewer
                 BtnLayout4.Background = new SolidColorBrush(Color.FromRgb(52, 73, 94)); // #34495E
                 BtnLayout9.Background = new SolidColorBrush(Color.FromRgb(52, 73, 94)); // #34495E
                 
-                // Actualizar botón de tema
-                BtnTheme.Content = "🌙 Dark";
+                // Actualizar botón de tema (clic -> vuelve al tema oscuro)
+                BtnTheme.Content = "🌙 Oscuro";
                 BtnTheme.Background = new SolidColorBrush(Color.FromRgb(102, 192, 244)); // SteamBlue
-                
-                Console.WriteLine("✓ Light Theme activated");
+
+                Console.WriteLine("✓ Normal Theme activated");
             }
             
             // Actualizar botones de layout activos
