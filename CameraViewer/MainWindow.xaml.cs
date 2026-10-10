@@ -229,29 +229,29 @@ namespace CameraViewer
             {
                 Title = "Add Camera Manually",
                 Width = 400,
-                Height = 250,
+                SizeToContent = SizeToContent.Height,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
+                Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)), // #2C3E50 - mismo tono que los paneles de la ventana principal
                 ResizeMode = ResizeMode.NoResize
             };
-            
+
             var grid = new Grid { Margin = new Thickness(20) };
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            
-            var lblIp = new TextBlock { Text = "Camera IP Address:", Margin = new Thickness(0, 0, 0, 5) };
-            var txtIp = new TextBox { Margin = new Thickness(0, 0, 0, 15), Padding = new Thickness(5) };
-            
-            var lblName = new TextBlock { Text = "Camera Name (optional):", Margin = new Thickness(0, 0, 0, 5) };
-            var txtName = new TextBox { Margin = new Thickness(0, 0, 0, 15), Padding = new Thickness(5) };
-            
+
+            var lblIp = new TextBlock { Text = "Camera IP Address:", Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 5) };
+            var txtIp = new TextBox { Height = 32, Margin = new Thickness(0, 0, 0, 15), Padding = new Thickness(8) };
+
+            var lblName = new TextBlock { Text = "Camera Name (optional):", Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 5) };
+            var txtName = new TextBox { Height = 32, Margin = new Thickness(0, 0, 0, 15), Padding = new Thickness(8) };
+
             var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var btnOk = new Button { Content = "Add", Width = 80, Height = 30, Margin = new Thickness(5, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(52, 152, 219)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0) };
-            var btnCancel = new Button { Content = "Cancel", Width = 80, Height = 30, Margin = new Thickness(5, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(149, 165, 166)), Foreground = new SolidColorBrush(Colors.White), BorderThickness = new Thickness(0) };
+            var btnOk = new Button { Content = "Add", Width = 80, Height = 30, Margin = new Thickness(5, 0, 0, 0), Style = (Style)Application.Current.Resources["SuccessButton"] };
+            var btnCancel = new Button { Content = "Cancel", Width = 80, Height = 30, Margin = new Thickness(5, 0, 0, 0), Style = (Style)Application.Current.Resources["DangerButton"] };
             
             btnOk.Click += (s, args) =>
             {
@@ -291,7 +291,7 @@ namespace CameraViewer
             Grid.SetRow(txtIp, 1);
             Grid.SetRow(lblName, 2);
             Grid.SetRow(txtName, 3);
-            Grid.SetRow(btnPanel, 5);
+            Grid.SetRow(btnPanel, 4);
             
             grid.Children.Add(lblIp);
             grid.Children.Add(txtIp);
@@ -1370,36 +1370,28 @@ namespace CameraViewer
                 Margin = new Thickness(0, 10, 0, 0)
             };
             
-            var btnOk = new Button 
-            { 
-                Content = "Save", 
-                Width = 90, 
-                Height = 35, 
-                Margin = new Thickness(0, 0, 10, 0), 
-                Background = new SolidColorBrush(Color.FromRgb(39, 174, 96)), 
-                Foreground = Brushes.White, 
-                BorderThickness = new Thickness(0),
-                FontSize = 12,
-                FontWeight = FontWeights.Bold,
-                Cursor = System.Windows.Input.Cursors.Hand
+            var btnOk = new Button
+            {
+                Content = "Save",
+                Width = 90,
+                Height = 35,
+                Margin = new Thickness(0, 0, 10, 0),
+                Style = (Style)Application.Current.Resources["SuccessButton"],
+                FontSize = 12
             };
-            
-            var btnCancel = new Button 
-            { 
-                Content = "Cancel", 
-                Width = 90, 
-                Height = 35, 
-                Background = new SolidColorBrush(Color.FromRgb(231, 76, 60)), 
-                Foreground = Brushes.White, 
-                BorderThickness = new Thickness(0),
-                FontSize = 12,
-                FontWeight = FontWeights.Bold,
-                Cursor = System.Windows.Input.Cursors.Hand
+
+            var btnCancel = new Button
+            {
+                Content = "Cancel",
+                Width = 90,
+                Height = 35,
+                Style = (Style)Application.Current.Resources["DangerButton"],
+                FontSize = 12
             };
-            
-            btnOk.Click += (s, e) => 
-            { 
-                camera.RtspUsername = txtRtspUsername.Text; 
+
+            btnOk.Click += (s, e) =>
+            {
+                camera.RtspUsername = txtRtspUsername.Text;
                 camera.RtspPassword = txtRtspPassword.Text; 
                 camera.Username = txtOnvifUsername.Text; 
                 camera.Password = txtOnvifPassword.Text;
