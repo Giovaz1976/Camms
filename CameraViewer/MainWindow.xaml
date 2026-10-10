@@ -151,7 +151,9 @@
                     <ListBox x:Name="LstCameras" Grid.Row="1" Margin="5"
                              SelectionMode="Multiple"
                              Background="#34495E" BorderThickness="0"
-                             SelectionChanged="LstCameras_SelectionChanged">
+                             SelectionChanged="LstCameras_SelectionChanged"
+                             PreviewMouseLeftButtonDown="LstCameras_PreviewMouseLeftButtonDown"
+                             PreviewMouseMove="LstCameras_PreviewMouseMove">
                         <ListBox.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="⚙️ Configure Credentials" Click="MenuConfigureCredentials_Click"/>

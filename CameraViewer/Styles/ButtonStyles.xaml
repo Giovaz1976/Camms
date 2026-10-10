@@ -223,6 +223,15 @@
          Se aplican por defecto a TODO TextBox/PasswordBox de la app (p. ej. los
          diálogos de credenciales), igual que el Style TargetType="Button" de arriba. -->
 
+    <!-- NOTA: Antes estos estilos traían un ControlTemplate propio (Border > ScrollViewer
+         x:Name="PART_ContentHost") para lograr esquinas redondeadas. Ese template impedía que
+         el texto escrito/asignado se renderizara (el valor llegaba a Text correctamente —
+         confirmado via UI Automation — pero no se pintaba ningún glifo en pantalla, en todos los
+         TextBox/PasswordBox de la app, no solo en el diálogo de "Add Camera"). Se quitó el
+         Template y se dejan solo los Setters de color sobre el ControlTemplate nativo de
+         TextBox/PasswordBox, que sí respeta Background/Foreground/BorderBrush. Se pierde el
+         CornerRadius de las esquinas; si se necesita recuperarlo, no reintroducir un
+         ControlTemplate propio sin antes verificar en pantalla real que el texto se ve. -->
     <Style TargetType="TextBox">
         <Setter Property="Background" Value="#34495E"/>
         <Setter Property="Foreground" Value="White"/>
@@ -232,28 +241,15 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="8,6"/>
         <Setter Property="FontSize" Value="13"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="TextBox">
-                    <Border x:Name="border"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="3">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsFocused" Value="True">
-                            <Setter TargetName="border" Property="BorderBrush" Value="#66C0F4"/>
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="border" Property="Background" Value="#1B2838"/>
-                            <Setter Property="Foreground" Value="#8F98A0"/>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsFocused" Value="True">
+                <Setter Property="BorderBrush" Value="#66C0F4"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="#1B2838"/>
+                <Setter Property="Foreground" Value="#8F98A0"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style TargetType="PasswordBox">
@@ -265,28 +261,15 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="8,6"/>
         <Setter Property="FontSize" Value="13"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="PasswordBox">
-                    <Border x:Name="border"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="3">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsFocused" Value="True">
-                            <Setter TargetName="border" Property="BorderBrush" Value="#66C0F4"/>
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="border" Property="Background" Value="#1B2838"/>
-                            <Setter Property="Foreground" Value="#8F98A0"/>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsFocused" Value="True">
+                <Setter Property="BorderBrush" Value="#66C0F4"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Background" Value="#1B2838"/>
+                <Setter Property="Foreground" Value="#8F98A0"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════

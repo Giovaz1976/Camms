@@ -66,6 +66,89 @@ LibVLCSharp), `PTZ` (velocidades), `UI`, `Network`. Ver `APPSETTINGS_CONFIGURATI
 detalle de cada campo. Nunca hardcodear estos valores en código nuevo — inyectar el `*Settings`
 correspondiente.
 
+## Tema visual y diálogos modales (code-behind)
+
+- **Tema oscuro es el default**: en `MainWindow.xaml.cs`, `_isDarkTheme = true` por defecto y
+  `Window_Loaded` llama `ApplyTheme(_isDarkTheme)` al iniciar (antes `ApplyTheme` solo se
+  disparaba desde el clic del botón, así que el oscuro nunca se aplicaba solo). El botón
+  `BtnTheme` arranca como `☀️ Normal` (clic → tema normal/claro, colores Steam originales
+  `#2C3E50`/`#34495E`) y alterna a `🌙 Oscuro` (`#171A21`/`#2A475E`/`#66C0F4`, Steam dark).
+- **Patrón de bug recurrente en diálogos**: los diálogos modales (`BtnAddCamera_Click`,
+  `ConfigurePtzCredentials`, `MenuConfigureCredentials_Click`, `ShowRtspCredentialsDialogAsync`,
+  `ShowCredentialsDialogAsync`) se construyen 100% en C# (`new Window { ... }`, sin `.xaml`
+  propio) con `ResizeMode.NoResize` y sin `ScrollViewer`. Si antes se les fijaba un `Height` a
+  mano y el contenido real (títulos, separadores, hints) lo superaba, el panel de botones
+  (Save/Cancel/OK) quedaba renderizado fuera del área visible y la ventana no se podía agrandar
+  — pasó en "Camera Credentials" (RTSP+ONVIF). **Ya corregido en los 5 diálogos**: usan
+  `SizeToContent = SizeToContent.Height` (solo `Width` fijo) en vez de `Height` adivinado. Si se
+  agrega un diálogo nuevo en code-behind, usar `SizeToContent.Height` desde el inicio.
+- **Estilos de inputs globales** (`Styles/ButtonStyles.xaml`, mergeados vía `App.xaml` →
+  `Application.Resources`): además del `Style TargetType="Button"` ya existente, hay
+  `Style TargetType="TextBox"` y `Style TargetType="PasswordBox"` sin `x:Key` — se aplican por
+  defecto a todo el árbol, **incluidos los controles creados dinámicamente en code-behind** —
+  con el mismo tema oscuro: fondo `#34495E`, texto blanco, borde `#1A252F` → `#66C0F4` al
+  enfocar. Antes de esto, los `TextBox`/`PasswordBox` de los diálogos salían con el estilo
+  blanco por defecto de Windows, inconsistente con el resto de la app.
+  **Bug ya corregido (no reintroducir)**: estos dos estilos traían un `ControlTemplate` propio
+  (`Border` con `CornerRadius="3"` conteniendo un `ScrollViewer x:Name="PART_ContentHost"`) para
+  lograr esquinas redondeadas. Ese template impedía que el texto se **viera** — el valor sí
+  llegaba a `Text` (confirmado leyendo `ValuePattern.Current.Value` vía UI Automation) pero no se
+  pintaba ningún glifo en pantalla, en cualquier `TextBox`/`PasswordBox` de la app (no solo en
+  "Add Camera Manually"; reproducido también en los campos de usuario/password de
+  "Camera Credentials"). Diagnosticado reemplazando el `Style` por uno vacío
+  (`new Style(typeof(TextBox))`) en un control de prueba: con el template nativo de WPF el texto
+  sí se veía. Fix aplicado: se quitó el `Setter Property="Template"` de ambos estilos y se dejan
+  solo los `Setter` de color sobre el `ControlTemplate` nativo (que si respeta
+  `Background`/`Foreground`/`BorderBrush`), moviendo los triggers de `IsFocused`/`IsEnabled` de
+  `ControlTemplate.Triggers` a `Style.Triggers`. Costo: se perdió el `CornerRadius` (esquinas ya
+  no redondeadas en inputs). Si se quiere recuperar el redondeado con un `ControlTemplate`
+  propio, **verificar primero en pantalla real** (no basta con que compile) que el texto
+  efectivamente se renderiza antes de darlo por bueno — este bug pasó inadvertido porque
+  compilaba limpio y UI Automation podía leer/escribir el valor sin problema.
+- **Botones Save/Cancel en diálogos**: preferir los estilos ya definidos
+  `{StaticResource SuccessButton}` (acción afirmativa: Save/Add/Connect) y
+  `{StaticResource DangerButton}` (Cancel), asignados en code-behind con
+  `Style = (Style)Application.Current.Resources["SuccessButton"]`, en vez de fijar
+  `Background`/`Foreground`/`BorderThickness` a mano. Ya migrados así:
+  `MenuConfigureCredentials_Click` y `BtnAddCamera_Click`. **Pendientes** (todavía con colores
+  sueltos en vez de los estilos compartidos): los popups Skip/Save/Connect de
+  `ShowRtspCredentialsDialogAsync` y `ShowCredentialsDialogAsync` (se disparan durante el scan
+  de cámaras, no desde un botón/menú directo) y el diálogo `ConfigurePtzCredentials`.
+
+## Drag & drop de cámaras entre paneles de video
+
+`MainWindow.xaml.cs` soporta arrastrar cámaras hacia/entre los paneles de `VideoGrid`, además
+del flujo original de selección múltiple en `LstCameras` (`LstCameras_SelectionChanged`):
+
+- **Origen 1 — lista de cámaras**: `LstCameras_PreviewMouseLeftButtonDown`/`_PreviewMouseMove`
+  detectan el arrastre (umbral `SystemParameters.MinimumHorizontalDragDistance`), resuelven el
+  `ListBoxItem` bajo el cursor con `FindAncestor<T>` y arrancan `DragDrop.DoDragDrop` con el
+  `CameraInfo` como payload. No requiere tener la cámara seleccionada — es un camino alterno al
+  checkbox.
+- **Origen 2 — un panel con video activo**: cada celda de `VideoGrid` (creada dinámicamente en
+  `SetupGridLayout`) lleva un **overlay `Border` transparente** (`ZIndex 5`, entre el `VideoView`
+  en `ZIndex 0` y el botón de audio en `ZIndex 10`) que es el verdadero origen del drag
+  (`VideoPanel_PreviewMouseLeftButtonDown`/`_PreviewMouseMove`). Se usa un overlay en vez de
+  enganchar los eventos directamente al `VideoView` porque el control de LibVLCSharp.WPF puede no
+  propagar de forma confiable los eventos de mouse de WPF — si se agrega más interacción sobre el
+  video, mantener este patrón de overlay en vez de intentar engancharse al `VideoView`.
+- **Destino — cualquier panel**: el `Border` exterior de la celda es `AllowDrop=true` con
+  `Drop`/`DragEnter`/`DragLeave` (`VideoPanel_*`); `Tag` guarda el índice de esa celda en
+  `_cameraViews` (asignado en `SetupGridLayout` como `panelIndex = _cameraViews.Count - 1`, mismo
+  orden en que se crean las celdas).
+- **La reasignación es lógica, no física**: nunca se mueve el `VideoView`/`MediaPlayer` entre
+  celdas del grid (riesgo de reparenting con el control de LibVLCSharp). En su lugar,
+  `AssignCameraToPanel` hace `StopCamera` (detiene/dispone el stream, resetea `Camera` a un
+  `CameraInfo` vacío) seguido de `StartCamera` con la cámara nueva en esa misma celda — es decir,
+  se reinicia la conexión RTSP de la celda, no se transporta el control visual. Al soltar un panel
+  sobre otro panel ocupado se hace swap (dos `AssignCameraToPanel`); sobre un panel vacío, se
+  mueve.
+- **Limitación conocida, no resuelta**: `LstCameras_SelectionChanged` sigue reconstruyendo *todo*
+  el layout por orden de selección cada vez que cambia la selección múltiple en la lista. Si el
+  usuario reacomoda paneles por drag-and-drop y luego toca el checkbox de alguna cámara, ese
+  reacomodo manual se pierde. No se intentó resolver esto (requeriría distinguir "modo manual" vs
+  "modo por selección"); tenerlo en cuenta si se pide hacer convivir ambos flujos.
+
 ## Deuda técnica conocida (documentada por el propio repo, no inferida)
 
 `SOLID_ANALYSIS.md` da una autoevaluación con nota general 6/10:

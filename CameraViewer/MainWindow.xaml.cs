@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
@@ -30,6 +31,8 @@ namespace CameraViewer
         private CameraInfo? _activePtzCamera; // Cámara actualmente controlada por PTZ
         private bool _isDarkTheme = true; // Tema actual (false = normal, true = oscuro). Oscuro por defecto.
         private bool _globalAudioMuted = true; // Estado global de audio (true = muted por defecto)
+        private Point _cameraDragStartPoint; // Para iniciar drag desde la lista de cámaras
+        private Point _panelDragStartPoint; // Para iniciar drag desde un panel de video
         
         /// <summary>
         /// Constructor with Dependency Injection.
@@ -552,15 +555,34 @@ namespace CameraViewer
                         var cameraView = new CameraView(new CameraInfo(), mediaPlayer);
                         cameraView.AudioButton = audioButton; // Guardar referencia al botón
                         _cameraViews.Add(cameraView);
-                        
+                        int panelIndex = _cameraViews.Count - 1;
+
                         // Evento click para toggle audio
                         audioButton.Click += (s, e) => ToggleAudio(cameraView, audioButton);
-                        
+
                         // Agregar botón al grid con ZIndex 10 (encima del video)
                         Panel.SetZIndex(audioButton, 10);
                         cellGrid.Children.Add(audioButton);
-                        
+
+                        // Overlay transparente para iniciar el arrastre de la cámara activa.
+                        // Se usa un overlay en vez del VideoView directamente porque el control de
+                        // video puede no propagar los eventos de mouse de WPF de forma confiable.
+                        var dragOverlay = new Border
+                        {
+                            Background = Brushes.Transparent,
+                            Tag = panelIndex
+                        };
+                        dragOverlay.PreviewMouseLeftButtonDown += VideoPanel_PreviewMouseLeftButtonDown;
+                        dragOverlay.PreviewMouseMove += VideoPanel_PreviewMouseMove;
+                        Panel.SetZIndex(dragOverlay, 5);
+                        cellGrid.Children.Add(dragOverlay);
+
                         border.Child = cellGrid;
+                        border.Tag = panelIndex;
+                        border.AllowDrop = true;
+                        border.Drop += VideoPanel_Drop;
+                        border.DragEnter += VideoPanel_DragEnter;
+                        border.DragLeave += VideoPanel_DragLeave;
                         Grid.SetRow(border, row);
                         Grid.SetColumn(border, col);
                         VideoGrid.Children.Add(border);
@@ -718,7 +740,146 @@ namespace CameraViewer
                 view.CurrentMedia = null;
             }
         }
-        
+
+        private void StopCamera(CameraView view)
+        {
+            try
+            {
+                view.MediaPlayer?.Stop();
+                view.CurrentMedia?.Dispose();
+                view.CurrentMedia = null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error stopping camera: {ex.Message}");
+            }
+            finally
+            {
+                view.Camera = new CameraInfo();
+            }
+        }
+
+        private void AssignCameraToPanel(CameraView view, CameraInfo? camera)
+        {
+            StopCamera(view);
+
+            if (camera != null && !string.IsNullOrEmpty(camera.Name))
+            {
+                StartCamera(view, camera);
+            }
+        }
+
+        // --- Drag & drop: mover cámaras entre paneles de video ---
+
+        private void LstCameras_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _cameraDragStartPoint = e.GetPosition(null);
+        }
+
+        private void LstCameras_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+                return;
+
+            var current = e.GetPosition(null);
+            if (Math.Abs(current.X - _cameraDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(current.Y - _cameraDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+                return;
+
+            if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)?.DataContext is CameraInfo camera)
+            {
+                DragDrop.DoDragDrop((DependencyObject)sender, new DataObject(typeof(CameraInfo), camera), DragDropEffects.Move);
+            }
+        }
+
+        private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
+        {
+            while (current != null)
+            {
+                if (current is T target)
+                    return target;
+
+                current = VisualTreeHelper.GetParent(current);
+            }
+
+            return null;
+        }
+
+        private void VideoPanel_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _panelDragStartPoint = e.GetPosition(null);
+        }
+
+        private void VideoPanel_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed)
+                return;
+
+            if (sender is not Border overlay || overlay.Tag is not int index || index < 0 || index >= _cameraViews.Count)
+                return;
+
+            var cameraView = _cameraViews[index];
+            if (string.IsNullOrEmpty(cameraView.Camera?.Name))
+                return; // Panel vacío, nada que arrastrar
+
+            var current = e.GetPosition(null);
+            if (Math.Abs(current.X - _panelDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(current.Y - _panelDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+                return;
+
+            DragDrop.DoDragDrop(overlay, new DataObject(typeof(CameraView), cameraView), DragDropEffects.Move);
+        }
+
+        private void VideoPanel_DragEnter(object sender, DragEventArgs e)
+        {
+            if (sender is Border border && (e.Data.GetDataPresent(typeof(CameraInfo)) || e.Data.GetDataPresent(typeof(CameraView))))
+            {
+                border.BorderBrush = new SolidColorBrush(Color.FromRgb(102, 192, 244)); // SteamBlue: feedback de drop válido
+            }
+        }
+
+        private void VideoPanel_DragLeave(object sender, DragEventArgs e)
+        {
+            if (sender is Border border)
+            {
+                border.BorderBrush = new SolidColorBrush(Color.FromRgb(52, 73, 94));
+            }
+        }
+
+        private void VideoPanel_Drop(object sender, DragEventArgs e)
+        {
+            if (sender is not Border targetBorder || targetBorder.Tag is not int targetIndex)
+                return;
+
+            targetBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(52, 73, 94));
+
+            if (targetIndex < 0 || targetIndex >= _cameraViews.Count)
+                return;
+
+            var targetView = _cameraViews[targetIndex];
+
+            if (e.Data.GetData(typeof(CameraView)) is CameraView sourceView)
+            {
+                if (sourceView == targetView)
+                    return;
+
+                var sourceCamera = sourceView.Camera;
+                var targetCamera = targetView.Camera;
+
+                AssignCameraToPanel(sourceView, targetCamera);
+                AssignCameraToPanel(targetView, sourceCamera);
+
+                TxtStatus.Text = string.IsNullOrEmpty(targetCamera?.Name)
+                    ? $"{sourceCamera?.Name} moved to panel"
+                    : $"Swapped {sourceCamera?.Name} and {targetCamera.Name}";
+            }
+            else if (e.Data.GetData(typeof(CameraInfo)) is CameraInfo droppedCamera)
+            {
+                AssignCameraToPanel(targetView, droppedCamera);
+                TxtStatus.Text = $"{droppedCamera.Name} connected to panel";
+            }
+        }
+
         private void BtnLayout1_Click(object sender, RoutedEventArgs e)
         {
             SetupGridLayout(1);
