@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
@@ -506,6 +509,63 @@ namespace CameraViewer
             TxtConnectionInfo.Text = $"Connected: {selectedCameras.Count} camera(s)";
         }
 
+        // --- Fix visual: fondo blanco del VideoView mientras no hay video reproduciéndose ---
+        //
+        // LibVLCSharp.WPF.VideoView no dibuja con el compositor de WPF: internamente crea una
+        // ventana nativa (campo privado "_videoHwndHost", de tipo VideoHwndHost : HwndHost) y le
+        // entrega el handle a libvlc para que pinte el video ahí directamente ("airspace"). Hasta
+        // que no hay un frame de video real, esa ventana nativa se repinta con el brush de fondo
+        // por defecto de su clase de ventana (gris claro/blanco de Windows) cada vez que Windows
+        // le manda WM_ERASEBKGND — lo cual pasa en CUALQUIER resize (confirmado: ocurre igual
+        // redimensionando la ventana a mano, sin tocar el botón de ocultar/mostrar lista; con
+        // SetupGridLayout no se nota porque se recrean los Border de cada celda desde cero).
+        // Como no hay forma pública de fijar ese color, se cambia el brush de fondo de la CLASE
+        // de ventana nativa vía SetClassLongPtr (GCLP_HBRBACKGROUND) apenas el VideoView obtiene
+        // su handle (evento Loaded) — accede a _videoHwndHost por reflexión ya que no es público.
+        // Todo con try/catch: si la versión de LibVLCSharp cambia esos detalles internos, esto
+        // simplemente no hace nada y la app sigue funcionando igual que antes.
+        private static IntPtr _darkVideoClassBrush = IntPtr.Zero;
+        private const int GCLP_HBRBACKGROUND = -10;
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateSolidBrush(uint crColor);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll")]
+        private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+
+        private static void DarkenVideoViewNativeBackground(VideoView videoView)
+        {
+            videoView.Loaded += (s, e) =>
+            {
+                try
+                {
+                    var field = typeof(VideoView).GetField("_videoHwndHost", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (field?.GetValue(videoView) is HwndHost hwndHost && hwndHost.Handle != IntPtr.Zero)
+                    {
+                        if (_darkVideoClassBrush == IntPtr.Zero)
+                        {
+                            // COLORREF 0x00BBGGRR; #252525 tiene los 3 canales iguales así que
+                            // el orden de bytes no importa acá (coincide con el fondo de cada celda).
+                            _darkVideoClassBrush = CreateSolidBrush(0x00252525);
+                        }
+
+                        if (_darkVideoClassBrush != IntPtr.Zero)
+                        {
+                            SetClassLongPtr(hwndHost.Handle, GCLP_HBRBACKGROUND, _darkVideoClassBrush);
+                            InvalidateRect(hwndHost.Handle, IntPtr.Zero, true);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"No se pudo oscurecer el fondo nativo del VideoView: {ex.Message}");
+                }
+            };
+        }
+
         private async void SetupGridLayout(int gridSize)
         {
             _currentLayout = gridSize;
@@ -580,7 +640,8 @@ namespace CameraViewer
                         var videoView = new VideoView();
                         var mediaPlayer = new VLCMediaPlayer(_libVLC);
                         videoView.MediaPlayer = mediaPlayer;
-                        
+                        DarkenVideoViewNativeBackground(videoView);
+
                         // Agregar video al grid con ZIndex 0 (fondo)
                         Panel.SetZIndex(videoView, 0);
                         cellGrid.Children.Add(videoView);

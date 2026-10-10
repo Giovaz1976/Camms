@@ -149,6 +149,38 @@ del flujo original de selección múltiple en `LstCameras` (`LstCameras_Selectio
   reacomodo manual se pierde. No se intentó resolver esto (requeriría distinguir "modo manual" vs
   "modo por selección"); tenerlo en cuenta si se pide hacer convivir ambos flujos.
 
+## VideoView en blanco al redimensionar (fix aplicado)
+
+`LibVLCSharp.WPF.VideoView` no renderiza con el compositor de WPF: internamente crea una ventana
+nativa de verdad (campo privado `_videoHwndHost`, tipo `VideoHwndHost : HwndHost`) y le entrega el
+handle a libvlc para que pinte el video ahí directamente ("airspace" — confirmado con un
+mini-proyecto de reflexión apuntando al paquete `LibVLCSharp.WPF` 3.8.5). Ningún `Background` que
+se fije en nuestro XAML/code-behind (el `Border` del grid de video, el `cellGrid`, el `VideoView`
+mismo) tiene efecto sobre lo que realmente se ve, porque esa ventana nativa pinta por su cuenta.
+
+- **Síntoma que esto causaba**: mientras una celda del `VideoGrid` no tiene ningún stream
+  reproduciéndose, la ventana nativa muestra el brush de fondo *por defecto de Windows* (gris
+  claro) en vez de quedarse transparente/oscura — y lo repinta así cada vez que Windows le manda
+  `WM_ERASEBKGND`, lo cual pasa en **cualquier resize** (se confirmó que ocurre igual
+  redimensionando la ventana a mano, sin usar el botón de ocultar/mostrar lista — no era un bug
+  de ese botón sino preexistente; con `SetupGridLayout` no se notaba porque esa función destruye y
+  recrea los `Border` de cada celda desde cero en vez de solo re-medir el existente).
+- **Fix (`DarkenVideoViewNativeBackground`, cerca de `SetupGridLayout` en
+  `MainWindow.xaml.cs`)**: como no hay API pública para fijar ese color, se cambia el brush de
+  fondo de la **clase** de ventana nativa vía `SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, brush)` en
+  cuanto el `VideoView` dispara su evento `Loaded` (momento en el que `_videoHwndHost.Handle` ya es
+  válido). Se accede a `_videoHwndHost` por reflexión porque no es un campo público — por eso todo
+  el método está en un único `try/catch`: si una futura versión de LibVLCSharp cambia ese nombre de
+  campo interno, el fix simplemente no hace nada (no rompe la app, solo deja de aplicar el
+  oscurecido). Se llama una vez por cada `VideoView` creado, justo después de
+  `videoView.MediaPlayer = mediaPlayer;`.
+- **Por qué no se intentó crear los `VideoView` de forma perezosa** (solo al asignar una cámara a
+  esa celda) como alternativa: habría evitado el bug de raíz (sin ventana nativa, no hay nada que
+  pintar de blanco) pero implica repensar todo el código que ya asume que `_cameraViews[i]` siempre
+  tiene `MediaPlayer`/`AudioButton` listos desde que se crea el grid (selección por lista,
+  drag-and-drop entre paneles, toggle de audio) — cambio mucho más invasivo para lo que era un bug
+  cosmético puntual.
+
 ## Cierre de la aplicación (liberar conexiones a las cámaras)
 
 `MainWindow.xaml.cs` centraliza todo el apagado en **`CleanupResources()`**, invocado tanto desde
