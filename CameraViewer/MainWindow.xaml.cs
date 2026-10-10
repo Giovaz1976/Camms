@@ -1106,7 +1106,7 @@ namespace CameraViewer
             {
                 Title = $"PTZ Credentials - {camera.Name}",
                 Width = 400,
-                Height = 280,
+                SizeToContent = SizeToContent.Height,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)),
@@ -1244,7 +1244,7 @@ namespace CameraViewer
             {
                 Title = $"Camera Credentials - {camera.Name}",
                 Width = 450,
-                Height = 450,
+                SizeToContent = SizeToContent.Height,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 Background = new SolidColorBrush(Color.FromRgb(44, 62, 80)),
@@ -1506,7 +1506,7 @@ namespace CameraViewer
             {
                 Title = $"RTSP Credentials - {camera.IpAddress}",
                 Width = 400,
-                Height = 340,
+                SizeToContent = SizeToContent.Height,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 ResizeMode = ResizeMode.NoResize,
@@ -1642,7 +1642,7 @@ namespace CameraViewer
             {
                 Title = $"Credentials Required - {camera.IpAddress}",
                 Width = 400,
-                Height = 350,
+                SizeToContent = SizeToContent.Height,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
                 ResizeMode = ResizeMode.NoResize,
