@@ -149,6 +149,41 @@ del flujo original de selección múltiple en `LstCameras` (`LstCameras_Selectio
   reacomodo manual se pierde. No se intentó resolver esto (requeriría distinguir "modo manual" vs
   "modo por selección"); tenerlo en cuenta si se pide hacer convivir ambos flujos.
 
+## Desacoplar un panel de video a su propia ventana ("pop out")
+
+Cada celda del `VideoGrid` (creada en `SetupGridLayout`) tiene un botón "↗" (arriba a la
+derecha, junto al botón de audio) que llama a `PopOutVideo(cameraView, cellGrid, videoView,
+popOutPlaceholder)`: mueve el `VideoView` de esa celda a una `Window` nueva e independiente
+(`Owner = this`, no modal). El `MediaPlayer` nunca se toca — sigue siendo el mismo objeto esté
+donde esté montado el `VideoView`, así que la reproducción no se interrumpe al mover el control.
+
+- **Volver a anclar = cerrar la ventana flotante**: no hay un botón "dock back" aparte; el
+  `Closing` de la ventana flotante reinserta el `VideoView` en su `cellGrid` original (capturado
+  por closure, igual que ya se hace con `cameraView` en el toggle de audio) y oculta el
+  placeholder "↗ Shown in a separate window" que mientras tanto ocupa su lugar en la celda.
+- **`_poppedOutWindows` (`Dictionary<CameraView, Window>`)**: registro de qué cámara está
+  despegada en qué ventana. `ClosePoppedOutWindows()` cierra todas (cada una intenta
+  re-anclarse en su `Closing`, inofensivo aunque la celda esté por descartarse) y se llama desde
+  dos lugares: al inicio de `SetupGridLayout` (las celdas viejas van a destruirse con el cambio
+  de layout) y al inicio de `CleanupResources()` (cierre de la app — ahí `_isDisposing` ya está en
+  `true`, así que el `Closing` de cada ventana flotante NO intenta re-anclar nada, solo se cierra).
+  Verificado: cerrar la app con una cámara despegada no cuelga el proceso ni lanza excepciones.
+- **Limitación cosmética conocida, no resuelta**: el fix de fondo oscuro de
+  `DarkenVideoViewNativeBackground` (ver sección siguiente) **no cubre el caso de redock**. Si la
+  cámara despegada tiene (o tuvo) un stream activo — es decir, se llamó `MediaPlayer.Play()` al
+  menos una vez —, al cerrar la ventana flotante el `VideoView` vuelve a mostrar fondo blanco
+  hasta que llegue un nuevo frame de video real. Se investigó bastante: no es el mismo bug que el
+  de redimensionar (ese sí se soluciona con `SetClassLongPtr`); reintentar el mismo fix con
+  reintentos escalonados vía `Dispatcher.BeginInvoke(DispatcherPriority.Loaded, ...)` tampoco lo
+  corrigió. La hipótesis más probable (no confirmada) es que, a diferencia del panel inactivo
+  (donde nunca se llamó `Play()` y Windows pinta el fondo "a la antigua" vía `WM_ERASEBKGND`, que
+  sí responde a `SetClassLongPtr`), una vez que LibVLC arrancó su salida de video (Direct3D) ese
+  renderer toma el control de la superficie nativa y la limpia a blanco por su cuenta al
+  reinicializarse tras el reparenting — eso ya no pasa por `WM_ERASEBKGND` y por lo tanto el
+  brush de clase no tiene efecto. Solucionarlo de raíz implicaría tocar opciones de `vout`/D3D de
+  libvlc, bastante más allá de lo que pedía la feature. Si se retoma: no repetir el enfoque de
+  `SetClassLongPtr` para este caso puntual, ya se probó y no funciona.
+
 ## VideoView en blanco al redimensionar (fix aplicado)
 
 `LibVLCSharp.WPF.VideoView` no renderiza con el compositor de WPF: internamente crea una ventana

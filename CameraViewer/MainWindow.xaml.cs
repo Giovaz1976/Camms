@@ -36,6 +36,7 @@ namespace CameraViewer
         private bool _globalAudioMuted = true; // Estado global de audio (true = muted por defecto)
         private Point _cameraDragStartPoint; // Para iniciar drag desde la lista de cámaras
         private Point _panelDragStartPoint; // Para iniciar drag desde un panel de video
+        private readonly Dictionary<CameraView, Window> _poppedOutWindows = new(); // Cámaras desacopladas a su propia ventana
         
         /// <summary>
         /// Constructor with Dependency Injection.
@@ -120,6 +121,10 @@ namespace CameraViewer
 
             try
             {
+                // 0. Cerrar cualquier ventana de video despegada (ya no intentan volver a
+                // anclarse porque _isDisposing ya está en true)
+                ClosePoppedOutWindows();
+
                 // 1. Cancelar cualquier escaneo en progreso
                 if (_scanCancellationTokenSource != null && !_scanCancellationTokenSource.IsCancellationRequested)
                 {
@@ -536,40 +541,60 @@ namespace CameraViewer
         [DllImport("user32.dll")]
         private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
 
-        private static void DarkenVideoViewNativeBackground(VideoView videoView)
+        private static void DarkenVideoViewNativeBackground(VideoView videoView, int attemptsRemaining = 20)
         {
-            videoView.Loaded += (s, e) =>
+            // Se re-invoca cada vez que el VideoView se (re)inserta en un árbol visual — tanto al
+            // crearlo como al volver de una ventana flotante (ver PopOutVideo) — porque el handle
+            // nativo de HwndHost todavía no existe en el momento en que se agrega a un Panel; hay
+            // que esperar a que WPF termine de (re)montarlo. Una sola espera con
+            // DispatcherPriority.Loaded no alcanza al volver de la ventana flotante (el handle
+            // nuevo tarda más de un ciclo en estar listo), así que se reintenta en varias vueltas
+            // del Dispatcher hasta que el handle exista o se agoten los intentos.
+            videoView.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
             {
                 try
                 {
                     var field = typeof(VideoView).GetField("_videoHwndHost", BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (field?.GetValue(videoView) is HwndHost hwndHost && hwndHost.Handle != IntPtr.Zero)
-                    {
-                        if (_darkVideoClassBrush == IntPtr.Zero)
-                        {
-                            // COLORREF 0x00BBGGRR; #252525 tiene los 3 canales iguales así que
-                            // el orden de bytes no importa acá (coincide con el fondo de cada celda).
-                            _darkVideoClassBrush = CreateSolidBrush(0x00252525);
-                        }
+                    var hwndHost = field?.GetValue(videoView) as HwndHost;
 
-                        if (_darkVideoClassBrush != IntPtr.Zero)
+                    if (hwndHost == null || hwndHost.Handle == IntPtr.Zero)
+                    {
+                        if (attemptsRemaining > 0)
                         {
-                            SetClassLongPtr(hwndHost.Handle, GCLP_HBRBACKGROUND, _darkVideoClassBrush);
-                            InvalidateRect(hwndHost.Handle, IntPtr.Zero, true);
+                            DarkenVideoViewNativeBackground(videoView, attemptsRemaining - 1);
                         }
+                        return;
+                    }
+
+                    if (_darkVideoClassBrush == IntPtr.Zero)
+                    {
+                        // COLORREF 0x00BBGGRR; #252525 tiene los 3 canales iguales así que
+                        // el orden de bytes no importa acá (coincide con el fondo de cada celda).
+                        _darkVideoClassBrush = CreateSolidBrush(0x00252525);
+                    }
+
+                    if (_darkVideoClassBrush != IntPtr.Zero)
+                    {
+                        SetClassLongPtr(hwndHost.Handle, GCLP_HBRBACKGROUND, _darkVideoClassBrush);
+                        InvalidateRect(hwndHost.Handle, IntPtr.Zero, true);
                     }
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"No se pudo oscurecer el fondo nativo del VideoView: {ex.Message}");
                 }
-            };
+            }));
         }
 
         private async void SetupGridLayout(int gridSize)
         {
             _currentLayout = gridSize;
-            
+
+            // Las celdas actuales van a destruirse: cerrar primero cualquier video despegado a
+            // una ventana propia (su intento de "volver a anclarse" en Closing cae sobre una
+            // celda que de todas formas se va a descartar a continuación).
+            ClosePoppedOutWindows();
+
             // Guardar referencias a cámaras activas antes de limpiar
             var activeCameras = _cameraViews
                 .Where(v => v.Camera != null && !string.IsNullOrEmpty(v.Camera.Name))
@@ -677,6 +702,44 @@ namespace CameraViewer
                         // Agregar botón al grid con ZIndex 10 (encima del video)
                         Panel.SetZIndex(audioButton, 10);
                         cellGrid.Children.Add(audioButton);
+
+                        // Texto que ocupa el lugar del video mientras está "despegado" en su
+                        // propia ventana (ver popOutButton más abajo)
+                        var popOutPlaceholder = new TextBlock
+                        {
+                            Text = "↗ Shown in a separate window",
+                            Foreground = new SolidColorBrush(Color.FromRgb(149, 165, 166)),
+                            FontSize = 11,
+                            TextAlignment = TextAlignment.Center,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Visibility = Visibility.Collapsed
+                        };
+                        Panel.SetZIndex(popOutPlaceholder, 1);
+                        cellGrid.Children.Add(popOutPlaceholder);
+
+                        // Botón para "despegar" el video de esta celda a su propia ventana
+                        // flotante (p. ej. para llevarlo a un segundo monitor)
+                        var popOutButton = new Button
+                        {
+                            Width = 28,
+                            Height = 28,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            VerticalAlignment = VerticalAlignment.Top,
+                            Margin = new Thickness(0, 8, 8, 0),
+                            Background = new SolidColorBrush(Color.FromArgb(180, 52, 73, 94)),
+                            BorderThickness = new Thickness(0),
+                            Cursor = System.Windows.Input.Cursors.Hand,
+                            FontSize = 14,
+                            Content = "↗",
+                            Foreground = Brushes.White,
+                            ToolTip = "Pop out to a separate window",
+                            Focusable = false,
+                            IsTabStop = false
+                        };
+                        popOutButton.Click += (s, e) => PopOutVideo(cameraView, cellGrid, videoView, popOutPlaceholder);
+                        Panel.SetZIndex(popOutButton, 10);
+                        cellGrid.Children.Add(popOutButton);
 
                         // Overlay transparente para iniciar el arrastre de la cámara activa.
                         // Se usa un overlay en vez del VideoView directamente porque el control de
@@ -1005,6 +1068,74 @@ namespace CameraViewer
                 AssignCameraToPanel(targetView, droppedCamera);
                 TxtStatus.Text = $"{droppedCamera.Name} connected to panel";
             }
+        }
+
+        // --- Desacoplar el video de un panel a su propia ventana flotante ---
+
+        /// <summary>
+        /// Mueve el VideoView de una celda a una ventana propia (reparenta el control: WPF
+        /// recrea la ventana nativa de LibVLCSharp.WPF bajo el nuevo padre). El MediaPlayer no se
+        /// toca — sigue siendo el mismo objeto, así que la reproducción no se interrumpe. Cerrar
+        /// la ventana flotante devuelve el VideoView a su celda original, salvo que la app se esté
+        /// cerrando (_isDisposing) o que el layout haya cambiado mientras tanto.
+        /// </summary>
+        private void PopOutVideo(CameraView cameraView, Grid cellGrid, VideoView videoView, TextBlock placeholder)
+        {
+            if (string.IsNullOrEmpty(cameraView.Camera?.Name))
+                return; // Panel vacío, nada que despegar
+
+            if (_poppedOutWindows.ContainsKey(cameraView))
+                return; // Ya está despegada
+
+            cellGrid.Children.Remove(videoView);
+            placeholder.Visibility = Visibility.Visible;
+
+            var popupWindow = new Window
+            {
+                Title = cameraView.Camera.Name,
+                Width = 480,
+                Height = 320,
+                MinWidth = 160,
+                MinHeight = 120,
+                Background = new SolidColorBrush(Color.FromRgb(37, 37, 37)),
+                Content = videoView,
+                Owner = this
+            };
+
+            popupWindow.Closing += (s, e) =>
+            {
+                _poppedOutWindows.Remove(cameraView);
+
+                // Si la app se está cerrando (o el layout cambió y esta celda ya no existe),
+                // no hay a dónde volver a anclar el VideoView — simplemente dejar que se cierre.
+                if (_isDisposing)
+                    return;
+
+                popupWindow.Content = null;
+                Panel.SetZIndex(videoView, 0);
+                cellGrid.Children.Add(videoView);
+                placeholder.Visibility = Visibility.Collapsed;
+                DarkenVideoViewNativeBackground(videoView);
+            };
+
+            _poppedOutWindows[cameraView] = popupWindow;
+            popupWindow.Show();
+        }
+
+        /// <summary>
+        /// Cierra toda ventana de video desacoplada. Cada una, al cerrarse, intenta devolver su
+        /// VideoView a la celda de origen (ver PopOutVideo) — inofensivo aunque esa celda esté por
+        /// descartarse (cambio de layout) o la app se esté cerrando (_isDisposing ya en true evita
+        /// el intento de volver a anclar).
+        /// </summary>
+        private void ClosePoppedOutWindows()
+        {
+            foreach (var window in _poppedOutWindows.Values.ToList())
+            {
+                try { window.Close(); }
+                catch (Exception ex) { Console.WriteLine($"Error closing popped-out window: {ex.Message}"); }
+            }
+            _poppedOutWindows.Clear();
         }
 
         private void BtnLayout1_Click(object sender, RoutedEventArgs e)
