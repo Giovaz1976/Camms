@@ -15,6 +15,7 @@ namespace CameraViewer.Models
         public string? RecordingPath { get; set; }
         public bool IsMuted { get; set; }
         public Button? AudioButton { get; set; } // Referencia al botón de audio individual
+        public Border? IdleOverlay { get; set; } // Cubre el VideoView mientras no hay stream reproduciéndose
 
         public CameraView(CameraInfo camera, MediaPlayer mediaPlayer)
         {

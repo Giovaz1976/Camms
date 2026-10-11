@@ -2,14 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
@@ -37,6 +34,7 @@ namespace CameraViewer
         private Point _cameraDragStartPoint; // Para iniciar drag desde la lista de cámaras
         private Point _panelDragStartPoint; // Para iniciar drag desde un panel de video
         private readonly Dictionary<CameraView, Window> _poppedOutWindows = new(); // Cámaras desacopladas a su propia ventana
+        private double _lastCameraListWidth = 250; // Último ancho del panel de lista antes de ocultarlo
         
         /// <summary>
         /// Constructor with Dependency Injection.
@@ -514,78 +512,6 @@ namespace CameraViewer
             TxtConnectionInfo.Text = $"Connected: {selectedCameras.Count} camera(s)";
         }
 
-        // --- Fix visual: fondo blanco del VideoView mientras no hay video reproduciéndose ---
-        //
-        // LibVLCSharp.WPF.VideoView no dibuja con el compositor de WPF: internamente crea una
-        // ventana nativa (campo privado "_videoHwndHost", de tipo VideoHwndHost : HwndHost) y le
-        // entrega el handle a libvlc para que pinte el video ahí directamente ("airspace"). Hasta
-        // que no hay un frame de video real, esa ventana nativa se repinta con el brush de fondo
-        // por defecto de su clase de ventana (gris claro/blanco de Windows) cada vez que Windows
-        // le manda WM_ERASEBKGND — lo cual pasa en CUALQUIER resize (confirmado: ocurre igual
-        // redimensionando la ventana a mano, sin tocar el botón de ocultar/mostrar lista; con
-        // SetupGridLayout no se nota porque se recrean los Border de cada celda desde cero).
-        // Como no hay forma pública de fijar ese color, se cambia el brush de fondo de la CLASE
-        // de ventana nativa vía SetClassLongPtr (GCLP_HBRBACKGROUND) apenas el VideoView obtiene
-        // su handle (evento Loaded) — accede a _videoHwndHost por reflexión ya que no es público.
-        // Todo con try/catch: si la versión de LibVLCSharp cambia esos detalles internos, esto
-        // simplemente no hace nada y la app sigue funcionando igual que antes.
-        private static IntPtr _darkVideoClassBrush = IntPtr.Zero;
-        private const int GCLP_HBRBACKGROUND = -10;
-
-        [DllImport("gdi32.dll")]
-        private static extern IntPtr CreateSolidBrush(uint crColor);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-        [DllImport("user32.dll")]
-        private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
-
-        private static void DarkenVideoViewNativeBackground(VideoView videoView, int attemptsRemaining = 20)
-        {
-            // Se re-invoca cada vez que el VideoView se (re)inserta en un árbol visual — tanto al
-            // crearlo como al volver de una ventana flotante (ver PopOutVideo) — porque el handle
-            // nativo de HwndHost todavía no existe en el momento en que se agrega a un Panel; hay
-            // que esperar a que WPF termine de (re)montarlo. Una sola espera con
-            // DispatcherPriority.Loaded no alcanza al volver de la ventana flotante (el handle
-            // nuevo tarda más de un ciclo en estar listo), así que se reintenta en varias vueltas
-            // del Dispatcher hasta que el handle exista o se agoten los intentos.
-            videoView.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
-            {
-                try
-                {
-                    var field = typeof(VideoView).GetField("_videoHwndHost", BindingFlags.NonPublic | BindingFlags.Instance);
-                    var hwndHost = field?.GetValue(videoView) as HwndHost;
-
-                    if (hwndHost == null || hwndHost.Handle == IntPtr.Zero)
-                    {
-                        if (attemptsRemaining > 0)
-                        {
-                            DarkenVideoViewNativeBackground(videoView, attemptsRemaining - 1);
-                        }
-                        return;
-                    }
-
-                    if (_darkVideoClassBrush == IntPtr.Zero)
-                    {
-                        // COLORREF 0x00BBGGRR; #252525 tiene los 3 canales iguales así que
-                        // el orden de bytes no importa acá (coincide con el fondo de cada celda).
-                        _darkVideoClassBrush = CreateSolidBrush(0x00252525);
-                    }
-
-                    if (_darkVideoClassBrush != IntPtr.Zero)
-                    {
-                        SetClassLongPtr(hwndHost.Handle, GCLP_HBRBACKGROUND, _darkVideoClassBrush);
-                        InvalidateRect(hwndHost.Handle, IntPtr.Zero, true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"No se pudo oscurecer el fondo nativo del VideoView: {ex.Message}");
-                }
-            }));
-        }
-
         private async void SetupGridLayout(int gridSize)
         {
             _currentLayout = gridSize;
@@ -665,12 +591,25 @@ namespace CameraViewer
                         var videoView = new VideoView();
                         var mediaPlayer = new VLCMediaPlayer(_libVLC);
                         videoView.MediaPlayer = mediaPlayer;
-                        DarkenVideoViewNativeBackground(videoView);
 
                         // Agregar video al grid con ZIndex 0 (fondo)
                         Panel.SetZIndex(videoView, 0);
                         cellGrid.Children.Add(videoView);
-                        
+
+                        // VideoView renderiza con una ventana nativa propia (HwndHost), fuera del
+                        // compositor de WPF: mientras no hay stream reproduciéndose muestra el
+                        // fondo por defecto de Windows (gris claro), no el nuestro. En vez de pelear
+                        // con esa ventana nativa (se intentó con SetClassLongPtr y no sobrevivía a
+                        // resizes grandes, p. ej. arrastrar el splitter del panel de cámaras), se la
+                        // tapa con este Border oscuro — StartCamera lo oculta al arrancar el stream
+                        // y StopCamera lo vuelve a mostrar.
+                        var idleOverlay = new Border
+                        {
+                            Background = new SolidColorBrush(Color.FromRgb(37, 37, 37)) // #252525, igual al borde de la celda
+                        };
+                        Panel.SetZIndex(idleOverlay, 2);
+                        cellGrid.Children.Add(idleOverlay);
+
                         // Crear botón de audio con icono de bocina
                         var audioButton = new Button
                         {
@@ -693,6 +632,7 @@ namespace CameraViewer
                         // Crear CameraView antes de asignar el evento
                         var cameraView = new CameraView(new CameraInfo(), mediaPlayer);
                         cameraView.AudioButton = audioButton; // Guardar referencia al botón
+                        cameraView.IdleOverlay = idleOverlay;
                         _cameraViews.Add(cameraView);
                         int panelIndex = _cameraViews.Count - 1;
 
@@ -909,10 +849,13 @@ namespace CameraViewer
                 var media = new Media(_libVLC, new Uri(rtspUrl));
                 cameraView.CurrentMedia = media;
                 cameraView.MediaPlayer.Play(media);
-                
+
+                if (cameraView.IdleOverlay != null)
+                    cameraView.IdleOverlay.Visibility = Visibility.Collapsed;
+
                 // Ensure audio is muted by default
                 cameraView.MediaPlayer.Mute = cameraView.IsMuted;
-                
+
                 Console.WriteLine($"Started {camera.Name} with {streamQuality} quality: {rtspUrl}");
             }
             catch (Exception ex)
@@ -946,6 +889,9 @@ namespace CameraViewer
             finally
             {
                 view.Camera = new CameraInfo();
+
+                if (view.IdleOverlay != null)
+                    view.IdleOverlay.Visibility = Visibility.Visible;
             }
         }
 
@@ -1115,7 +1061,6 @@ namespace CameraViewer
                 Panel.SetZIndex(videoView, 0);
                 cellGrid.Children.Add(videoView);
                 placeholder.Visibility = Visibility.Collapsed;
-                DarkenVideoViewNativeBackground(videoView);
             };
 
             _poppedOutWindows[cameraView] = popupWindow;
@@ -1417,10 +1362,13 @@ namespace CameraViewer
                         
                         cameraView.CurrentMedia = media;
                         cameraView.MediaPlayer.Play(media);
-                        
+
+                        if (cameraView.IdleOverlay != null)
+                            cameraView.IdleOverlay.Visibility = Visibility.Collapsed;
+
                         // Preserve mute state
                         cameraView.MediaPlayer.Mute = cameraView.IsMuted;
-                        
+
                         cameraView.IsRecording = true;
                         cameraView.RecordingPath = filePath;
                         
@@ -2196,14 +2144,23 @@ namespace CameraViewer
 
             if (isVisible)
             {
+                // Recordar el ancho actual (puede venir de haber arrastrado el GridSplitter)
+                // para restaurarlo tal cual al volver a mostrar la lista.
+                if (ColCameraList.ActualWidth > 0)
+                    _lastCameraListWidth = ColCameraList.ActualWidth;
+
                 CameraListPanel.Visibility = Visibility.Collapsed;
+                CameraListSplitter.Visibility = Visibility.Collapsed;
+                ColCameraList.MinWidth = 0; // si no, el MinWidth de 150 evita llegar a 0
                 ColCameraList.Width = new GridLength(0);
                 BtnToggleCameraList.Content = "📋 Show List";
             }
             else
             {
                 CameraListPanel.Visibility = Visibility.Visible;
-                ColCameraList.Width = new GridLength(250);
+                CameraListSplitter.Visibility = Visibility.Visible;
+                ColCameraList.MinWidth = 150;
+                ColCameraList.Width = new GridLength(_lastCameraListWidth);
                 BtnToggleCameraList.Content = "📋 Hide List";
             }
         }

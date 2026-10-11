@@ -168,53 +168,64 @@ donde esté montado el `VideoView`, así que la reproducción no se interrumpe a
   de layout) y al inicio de `CleanupResources()` (cierre de la app — ahí `_isDisposing` ya está en
   `true`, así que el `Closing` de cada ventana flotante NO intenta re-anclar nada, solo se cierra).
   Verificado: cerrar la app con una cámara despegada no cuelga el proceso ni lanza excepciones.
-- **Limitación cosmética conocida, no resuelta**: el fix de fondo oscuro de
-  `DarkenVideoViewNativeBackground` (ver sección siguiente) **no cubre el caso de redock**. Si la
-  cámara despegada tiene (o tuvo) un stream activo — es decir, se llamó `MediaPlayer.Play()` al
-  menos una vez —, al cerrar la ventana flotante el `VideoView` vuelve a mostrar fondo blanco
-  hasta que llegue un nuevo frame de video real. Se investigó bastante: no es el mismo bug que el
-  de redimensionar (ese sí se soluciona con `SetClassLongPtr`); reintentar el mismo fix con
-  reintentos escalonados vía `Dispatcher.BeginInvoke(DispatcherPriority.Loaded, ...)` tampoco lo
-  corrigió. La hipótesis más probable (no confirmada) es que, a diferencia del panel inactivo
-  (donde nunca se llamó `Play()` y Windows pinta el fondo "a la antigua" vía `WM_ERASEBKGND`, que
-  sí responde a `SetClassLongPtr`), una vez que LibVLC arrancó su salida de video (Direct3D) ese
-  renderer toma el control de la superficie nativa y la limpia a blanco por su cuenta al
-  reinicializarse tras el reparenting — eso ya no pasa por `WM_ERASEBKGND` y por lo tanto el
-  brush de clase no tiene efecto. Solucionarlo de raíz implicaría tocar opciones de `vout`/D3D de
-  libvlc, bastante más allá de lo que pedía la feature. Si se retoma: no repetir el enfoque de
-  `SetClassLongPtr` para este caso puntual, ya se probó y no funciona.
+- **Limitación cosmética conocida, no resuelta**: el fix de fondo oscuro (ver sección siguiente)
+  cubre cada celda del `VideoGrid` pero **no** la ventana flotante del pop-out — ésta solo
+  contiene el `VideoView` desnudo, sin el `idleOverlay`. Si la cámara despegada todavía está
+  "conectando" (p. ej. IP inválida, nunca llegó un frame real), la ventana flotante puede mostrar
+  el fondo claro nativo de Windows hasta que llegue un frame real o se cierre. No se consideró
+  grave como para replicar el overlay ahí también — si se retoma, ver la sección siguiente para
+  el patrón a seguir (cubrir con un `Border` oscuro, no pelear con la ventana nativa).
 
-## VideoView en blanco al redimensionar (fix aplicado)
+## VideoView en blanco mientras no hay stream (fix aplicado: overlay, no P/Invoke)
 
 `LibVLCSharp.WPF.VideoView` no renderiza con el compositor de WPF: internamente crea una ventana
-nativa de verdad (campo privado `_videoHwndHost`, tipo `VideoHwndHost : HwndHost`) y le entrega el
-handle a libvlc para que pinte el video ahí directamente ("airspace" — confirmado con un
-mini-proyecto de reflexión apuntando al paquete `LibVLCSharp.WPF` 3.8.5). Ningún `Background` que
-se fije en nuestro XAML/code-behind (el `Border` del grid de video, el `cellGrid`, el `VideoView`
-mismo) tiene efecto sobre lo que realmente se ve, porque esa ventana nativa pinta por su cuenta.
+nativa de verdad (confirmado con un mini-proyecto de reflexión apuntando al paquete
+`LibVLCSharp.WPF` 3.8.5: campo privado `_videoHwndHost`, tipo `VideoHwndHost : HwndHost`) y le
+entrega el handle a libvlc para que pinte ahí directamente ("airspace"). Mientras no hay ningún
+stream reproduciéndose esa ventana nativa muestra el fondo claro por defecto de Windows en vez de
+quedarse oscura — y punto importante: **ningún `Background` fijado en nuestro XAML/code-behind
+tiene efecto sobre ella**, porque pinta por su cuenta, fuera del árbol visual de WPF.
 
-- **Síntoma que esto causaba**: mientras una celda del `VideoGrid` no tiene ningún stream
-  reproduciéndose, la ventana nativa muestra el brush de fondo *por defecto de Windows* (gris
-  claro) en vez de quedarse transparente/oscura — y lo repinta así cada vez que Windows le manda
-  `WM_ERASEBKGND`, lo cual pasa en **cualquier resize** (se confirmó que ocurre igual
-  redimensionando la ventana a mano, sin usar el botón de ocultar/mostrar lista — no era un bug
-  de ese botón sino preexistente; con `SetupGridLayout` no se notaba porque esa función destruye y
-  recrea los `Border` de cada celda desde cero en vez de solo re-medir el existente).
-- **Fix (`DarkenVideoViewNativeBackground`, cerca de `SetupGridLayout` en
-  `MainWindow.xaml.cs`)**: como no hay API pública para fijar ese color, se cambia el brush de
-  fondo de la **clase** de ventana nativa vía `SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, brush)` en
-  cuanto el `VideoView` dispara su evento `Loaded` (momento en el que `_videoHwndHost.Handle` ya es
-  válido). Se accede a `_videoHwndHost` por reflexión porque no es un campo público — por eso todo
-  el método está en un único `try/catch`: si una futura versión de LibVLCSharp cambia ese nombre de
-  campo interno, el fix simplemente no hace nada (no rompe la app, solo deja de aplicar el
-  oscurecido). Se llama una vez por cada `VideoView` creado, justo después de
-  `videoView.MediaPlayer = mediaPlayer;`.
+- **Primer intento (abandonado, no reintentar)**: cambiar el brush de fondo de la *clase* de
+  ventana nativa vía P/Invoke (`SetClassLongPtr`/`GCLP_HBRBACKGROUND`), accediendo a
+  `_videoHwndHost` por reflexión. Funcionaba para el caso simple (ventana recién creada, resize
+  suave) pero **no sobrevivía a un resize "agresivo"** — múltiples resizes seguidos en rápida
+  sucesión, como arrastrar el `GridSplitter` del panel de cámaras (ver sección de abajo) — ni a
+  reintentos con `Dispatcher.BeginInvoke(DispatcherPriority.Loaded, ...)`, ni a reaplicarlo en
+  cada `SizeChanged`. Se retiró todo ese código (ya no existe `DarkenVideoViewNativeBackground`
+  ni los `DllImport` de `user32`/`gdi32` en `MainWindow.xaml.cs`).
+- **Fix actual, mucho más simple y robusto**: en vez de pelear con la ventana nativa, **taparla**
+  con un `Border` de WPF normal (`CameraView.IdleOverlay`, creado en `SetupGridLayout` con
+  `ZIndex=2`, entre el `VideoView` en `ZIndex 0` y el resto de botones/overlays en `ZIndex 1/5/10`)
+  — pintado por el compositor de WPF como cualquier otro control, así que no le afecta nada de lo
+  de arriba. `StartCamera` lo colapsa (`Visibility.Collapsed`) justo después de
+  `MediaPlayer.Play(media)` (hay dos puntos donde se llama `Play` — el flujo normal y
+  `StartAllRecordings` — los dos ocultan el overlay); `StopCamera` lo vuelve a mostrar en su
+  `finally`. Verificado con el `GridSplitter` (resize continuo arrastrando) y con una cámara
+  "conectando" (IP inválida, nunca llega un frame real): en ambos casos el panel se queda oscuro.
 - **Por qué no se intentó crear los `VideoView` de forma perezosa** (solo al asignar una cámara a
-  esa celda) como alternativa: habría evitado el bug de raíz (sin ventana nativa, no hay nada que
-  pintar de blanco) pero implica repensar todo el código que ya asume que `_cameraViews[i]` siempre
-  tiene `MediaPlayer`/`AudioButton` listos desde que se crea el grid (selección por lista,
-  drag-and-drop entre paneles, toggle de audio) — cambio mucho más invasivo para lo que era un bug
-  cosmético puntual.
+  esa celda) como alternativa: habría evitado el bug de raíz desde otro ángulo (sin ventana nativa
+  creada, no hay nada que pintar de blanco) pero implica repensar todo el código que ya asume que
+  `_cameraViews[i]` siempre tiene `MediaPlayer`/`AudioButton`/`IdleOverlay` listos desde que se
+  crea el grid (selección por lista, drag-and-drop entre paneles, toggle de audio, pop-out) —
+  cambio mucho más invasivo que agregar un `Border` tapando la celda.
+
+## Panel de lista de cámaras redimensionable
+
+La columna de `CameraListPanel` (`ColCameraList` en `MainWindow.xaml`, `Grid.Column="0"` del
+Main Content Grid) tiene `MinWidth="150"`/`MaxWidth="500"` y se redimensiona arrastrando un
+`GridSplitter` (`CameraListSplitter`, `Grid.Column="1"`, `ResizeBehavior="PreviousAndNext"`) entre
+ella y el área de video (`Grid.Column="2"`, antes era la columna 1 — se corrió al agregar la del
+splitter). El área de video tiene su propio `MinWidth="300"` para que el splitter no la pueda
+achicar hasta desaparecer.
+
+- **Interacción con `BtnToggleCameraList` (ocultar/mostrar lista)**: el toggle no usa el ancho fijo
+  250 a secas — `_lastCameraListWidth` guarda `ColCameraList.ActualWidth` justo antes de ocultar
+  (sea cual sea el ancho que haya quedado tras arrastrar el splitter) y lo restaura tal cual al
+  volver a mostrar. Al ocultar, además de `Visibility.Collapsed` en `CameraListPanel` y en
+  `CameraListSplitter`, hay que poner `ColCameraList.MinWidth = 0` temporalmente — si no, el
+  `MinWidth="150"` de la `ColumnDefinition` evita que el ancho llegue a 0 aunque se le asigne
+  `GridLength(0)`. Se restaura a 150 al volver a mostrar.
 
 ## Cierre de la aplicación (liberar conexiones a las cámaras)
 

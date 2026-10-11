@@ -137,8 +137,9 @@
         <!-- Main Content -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="ColCameraList" Width="250"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="ColCameraList" Width="250" MinWidth="150" MaxWidth="500"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*" MinWidth="300"/>
             </Grid.ColumnDefinitions>
 
             <!-- Camera List -->
@@ -179,9 +180,26 @@
                     </ListBox>
                 </Grid>
             </Border>
-            
+
+            <!-- Splitter para redimensionar el panel de lista de cámaras -->
+            <GridSplitter x:Name="CameraListSplitter" Grid.Column="1"
+                          Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="#1A252F" ShowsPreview="False"
+                          ResizeBehavior="PreviousAndNext">
+                <GridSplitter.Style>
+                    <Style TargetType="GridSplitter">
+                        <Setter Property="Cursor" Value="SizeWE"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#66C0F4"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </GridSplitter.Style>
+            </GridSplitter>
+
             <!-- Video Display Grid with PTZ Controls -->
-            <Grid Grid.Column="1">
+            <Grid Grid.Column="2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
