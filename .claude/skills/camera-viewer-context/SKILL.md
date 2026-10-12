@@ -151,23 +151,60 @@ del flujo original de selección múltiple en `LstCameras` (`LstCameras_Selectio
 
 ## Desacoplar un panel de video a su propia ventana ("pop out")
 
-Cada celda del `VideoGrid` (creada en `SetupGridLayout`) tiene un botón "↗" (arriba a la
-derecha, junto al botón de audio) que llama a `PopOutVideo(cameraView, cellGrid, videoView,
-popOutPlaceholder)`: mueve el `VideoView` de esa celda a una `Window` nueva e independiente
-(`Owner = this`, no modal). El `MediaPlayer` nunca se toca — sigue siendo el mismo objeto esté
-donde esté montado el `VideoView`, así que la reproducción no se interrumpe al mover el control.
+Cada celda del `VideoGrid` (creada en `SetupGridLayout`) tiene un botón "↗" que llama a
+`PopOutVideo(cameraView, cellGrid, videoView, popOutPlaceholder)`: mueve el `VideoView` de esa
+celda a una `Window` nueva e independiente (no modal, sin `Owner` — ver más abajo por qué). El
+`MediaPlayer` nunca se toca — sigue siendo el mismo objeto esté donde esté montado el `VideoView`,
+así que la reproducción no se interrumpe al mover el control.
 
 - **Volver a anclar = cerrar la ventana flotante**: no hay un botón "dock back" aparte; el
   `Closing` de la ventana flotante reinserta el `VideoView` en su `cellGrid` original (capturado
-  por closure, igual que ya se hace con `cameraView` en el toggle de audio) y oculta el
-  placeholder "↗ Shown in a separate window" que mientras tanto ocupa su lugar en la celda.
+  por closure) y oculta el placeholder "↗ Shown in a separate window" que mientras tanto ocupa su
+  lugar en la celda.
 - **`_poppedOutWindows` (`Dictionary<CameraView, Window>`)**: registro de qué cámara está
-  despegada en qué ventana. `ClosePoppedOutWindows()` cierra todas (cada una intenta
-  re-anclarse en su `Closing`, inofensivo aunque la celda esté por descartarse) y se llama desde
-  dos lugares: al inicio de `SetupGridLayout` (las celdas viejas van a destruirse con el cambio
-  de layout) y al inicio de `CleanupResources()` (cierre de la app — ahí `_isDisposing` ya está en
-  `true`, así que el `Closing` de cada ventana flotante NO intenta re-anclar nada, solo se cierra).
+  despegada en qué ventana. `ClosePoppedOutWindows()` cierra todas y se llama al inicio de
+  `SetupGridLayout` (cambio de layout) y al inicio de `CleanupResources()` (cierre de la app —
+  `_isDisposing` ya en `true` evita que el `Closing` de cada ventana intente re-anclar nada).
   Verificado: cerrar la app con una cámara despegada no cuelga el proceso ni lanza excepciones.
+- **Bug real encontrado (ya corregido) — el botón dejaba de responder justo al empezar a verse
+  video real**: reportado por el usuario y reproducido con sus propias palabras — "debo dar clic
+  antes de que aparezca el video, de lo contrario, si el video ya está desplegado, el botón no
+  funciona [...] incluso aunque cambie el tamaño de la ventana". Mis pruebas previas solo habían
+  usado IPs falsas/inalcanzables (nunca llegaba a reproducirse un frame real), por eso nunca until
+  then lo reproduje. **Causa raíz confirmada**: `VideoView` pinta con una ventana nativa propia
+  (`HwndHost`, ver sección siguiente); mientras el panel está vacío/"conectando", WPF puede
+  recortar esa ventana nativa para que los controles de WPF superpuestos (como el botón "↗" o
+  `audioButton`, ambos con `ZIndex` más alto) sigan recibiendo el mouse input con normalidad — pero
+  en cuanto hay **video real reproduciéndose**, la ventana nativa parece recuperar la captura del
+  mouse de toda su superficie a nivel de Windows, por debajo del Z-order lógico de WPF, y ya no
+  suelta esa captura ni con un resize posterior. Intentos previos que NO sirvieron para esto
+  (no reintentar): cambiar `Click` por `PreviewMouseLeftButtonDown` en el botón — el problema no es
+  qué evento se escucha, es que el clic directamente no llega al `Button` en absoluto mientras
+  esté superpuesto al video activo.
+  - **Fix real: dejar de superponer los botones al video.** `cellGrid` pasó de ser un área única a
+    un `Grid` de 2 filas — fila 0 (`Auto`) es una franja (`buttonStrip`, `StackPanel` horizontal,
+    fondo `#1A252F`) con `popOutButton` y `audioButton`, FUERA del área de video; fila 1 (`*`) es
+    el `VideoView` + `idleOverlay` + `dragOverlay` + `popOutPlaceholder`, igual que antes. Al no
+    haber overlap entre los botones y el `VideoView`, no hay ventana nativa de por medio que pueda
+    robarse el click — por eso `popOutButton` volvió a usar `Click` normal (ya no hace falta
+    `PreviewMouseLeftButtonDown`).
+  - **Riesgo no resuelto, mismo origen**: `dragOverlay` (usado para iniciar el arrastre de un panel
+    con video activo entre celdas, ver sección de drag-and-drop) **sí** sigue superpuesto al video
+    en la fila 1 — no se puede sacar de ahí porque la interacción requiere tocar el video mismo
+    para iniciar el drag. Si se reporta que arrastrar un panel con video real activo deja de
+    funcionar, es la misma causa de raíz que esto; no tiene una solución tan simple como reubicar
+    un botón.
+  - **Lección sobre diagnóstico en esta app**: `CameraViewer.csproj` tiene `OutputType=WinExe`, o
+    sea que **no hay consola adjunta** corriendo normalmente — `Console.WriteLine` no se ve en uso
+    real (solo bajo un depurador adjunto). Para diagnósticos visibles al usuario sin pedirle que
+    corra la app de un modo especial, usar `TxtStatus.Text` (la barra de estado de la ventana
+    principal, siempre visible) en vez de `Console.WriteLine`. `PopOutVideo` ya sigue este patrón.
+- **Sin `Owner` a propósito**: una ventana `Window` con `Owner = this` se **oculta** (no solo se
+  minimiza, `IsWindowVisible` da `false`) en cuanto se minimiza su dueña — confirmado
+  empíricamente. El usuario pidió lo contrario (que el video del pop-out siga visible aunque la
+  ventana principal esté minimizada), así que el pop-out se crea sin `Owner`. El cierre al salir de
+  la app sigue funcionando igual porque `CleanupResources()` cierra cada ventana flotante por
+  código (`ClosePoppedOutWindows()`), no depende de la relación `Owner` de Win32.
 - **Limitación cosmética conocida, no resuelta**: el fix de fondo oscuro (ver sección siguiente)
   cubre cada celda del `VideoGrid` pero **no** la ventana flotante del pop-out — ésta solo
   contiene el `VideoView` desnudo, sin el `idleOverlay`. Si la cámara despegada todavía está

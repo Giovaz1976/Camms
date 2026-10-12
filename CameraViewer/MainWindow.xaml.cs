@@ -585,14 +585,18 @@ namespace CameraViewer
                     
                     try
                     {
-                        // Crear un Grid para contener el video y el overlay del botón de audio
+                        // Grid de 2 filas: fila 0 = franja de botones (fuera del video, ver nota
+                        // más abajo), fila 1 = el video y todo lo que se superpone a él.
                         var cellGrid = new Grid();
-                        
+                        cellGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                        cellGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
                         var videoView = new VideoView();
                         var mediaPlayer = new VLCMediaPlayer(_libVLC);
                         videoView.MediaPlayer = mediaPlayer;
 
-                        // Agregar video al grid con ZIndex 0 (fondo)
+                        // Agregar video a la fila 1 con ZIndex 0 (fondo)
+                        Grid.SetRow(videoView, 1);
                         Panel.SetZIndex(videoView, 0);
                         cellGrid.Children.Add(videoView);
 
@@ -607,44 +611,17 @@ namespace CameraViewer
                         {
                             Background = new SolidColorBrush(Color.FromRgb(37, 37, 37)) // #252525, igual al borde de la celda
                         };
+                        Grid.SetRow(idleOverlay, 1);
                         Panel.SetZIndex(idleOverlay, 2);
                         cellGrid.Children.Add(idleOverlay);
 
-                        // Crear botón de audio con icono de bocina
-                        var audioButton = new Button
-                        {
-                            Width = 35,
-                            Height = 35,
-                            HorizontalAlignment = HorizontalAlignment.Right,
-                            VerticalAlignment = VerticalAlignment.Bottom,
-                            Margin = new Thickness(0, 0, 10, 10),
-                            Background = new SolidColorBrush(Color.FromArgb(180, 220, 53, 69)), // Rojo semi-transparente (muted)
-                            BorderThickness = new Thickness(0),
-                            Cursor = System.Windows.Input.Cursors.Hand,
-                            FontSize = 18,
-                            Content = "🔇", // Bocina con X (muted)
-                            Foreground = Brushes.White,
-                            ToolTip = "Click to unmute audio",
-                            Focusable = false, // Evitar que robe el foco del video
-                            IsTabStop = false  // Excluir de navegación por teclado
-                        };
-                        
-                        // Crear CameraView antes de asignar el evento
+                        // Crear CameraView antes de los botones, ya que los capturan por closure
                         var cameraView = new CameraView(new CameraInfo(), mediaPlayer);
-                        cameraView.AudioButton = audioButton; // Guardar referencia al botón
-                        cameraView.IdleOverlay = idleOverlay;
                         _cameraViews.Add(cameraView);
                         int panelIndex = _cameraViews.Count - 1;
 
-                        // Evento click para toggle audio
-                        audioButton.Click += (s, e) => ToggleAudio(cameraView, audioButton);
-
-                        // Agregar botón al grid con ZIndex 10 (encima del video)
-                        Panel.SetZIndex(audioButton, 10);
-                        cellGrid.Children.Add(audioButton);
-
-                        // Texto que ocupa el lugar del video mientras está "despegado" en su
-                        // propia ventana (ver popOutButton más abajo)
+                        // Texto que ocupa el lugar del video mientras está "despegado" en su propia
+                        // ventana (ver popOutButton más abajo, que lo necesita por closure)
                         var popOutPlaceholder = new TextBlock
                         {
                             Text = "↗ Shown in a separate window",
@@ -655,22 +632,41 @@ namespace CameraViewer
                             VerticalAlignment = VerticalAlignment.Center,
                             Visibility = Visibility.Collapsed
                         };
+                        Grid.SetRow(popOutPlaceholder, 1);
                         Panel.SetZIndex(popOutPlaceholder, 1);
                         cellGrid.Children.Add(popOutPlaceholder);
+
+                        // Franja de botones FUERA del área del video (fila 0, Auto height). No son
+                        // overlays flotando sobre el VideoView como antes: una vez que hay video
+                        // real reproduciéndose (no solo un panel vacío/conectando), la ventana
+                        // nativa de LibVLCSharp.WPF puede volver a capturar el mouse input de toda
+                        // su superficie a nivel de Windows, por debajo del Z-order lógico de WPF —
+                        // un Button superpuesto deja de recibir clics aunque visualmente siga ahí
+                        // (confirmado: el botón de pop-out dejaba de responder justo al empezar a
+                        // verse video real, y seguía roto incluso después de redimensionar). La
+                        // única forma confiable de evitarlo es no superponer controles interactivos
+                        // al video en absoluto.
+                        var buttonStrip = new StackPanel
+                        {
+                            Orientation = Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Background = new SolidColorBrush(Color.FromRgb(26, 37, 47)), // #1A252F
+                            Margin = new Thickness(0, 0, 0, 2)
+                        };
+                        Grid.SetRow(buttonStrip, 0);
+                        cellGrid.Children.Add(buttonStrip);
 
                         // Botón para "despegar" el video de esta celda a su propia ventana
                         // flotante (p. ej. para llevarlo a un segundo monitor)
                         var popOutButton = new Button
                         {
-                            Width = 28,
-                            Height = 28,
-                            HorizontalAlignment = HorizontalAlignment.Right,
-                            VerticalAlignment = VerticalAlignment.Top,
-                            Margin = new Thickness(0, 8, 8, 0),
-                            Background = new SolidColorBrush(Color.FromArgb(180, 52, 73, 94)),
+                            Width = 26,
+                            Height = 26,
+                            Margin = new Thickness(0, 2, 2, 2),
+                            Background = new SolidColorBrush(Color.FromRgb(52, 73, 94)),
                             BorderThickness = new Thickness(0),
                             Cursor = System.Windows.Input.Cursors.Hand,
-                            FontSize = 14,
+                            FontSize = 13,
                             Content = "↗",
                             Foreground = Brushes.White,
                             ToolTip = "Pop out to a separate window",
@@ -678,12 +674,40 @@ namespace CameraViewer
                             IsTabStop = false
                         };
                         popOutButton.Click += (s, e) => PopOutVideo(cameraView, cellGrid, videoView, popOutPlaceholder);
-                        Panel.SetZIndex(popOutButton, 10);
-                        cellGrid.Children.Add(popOutButton);
+                        buttonStrip.Children.Add(popOutButton);
+
+                        // Crear botón de audio con icono de bocina
+                        var audioButton = new Button
+                        {
+                            Width = 26,
+                            Height = 26,
+                            Margin = new Thickness(0, 2, 4, 2),
+                            Background = new SolidColorBrush(Color.FromRgb(220, 53, 69)), // Rojo (muted)
+                            BorderThickness = new Thickness(0),
+                            Cursor = System.Windows.Input.Cursors.Hand,
+                            FontSize = 14,
+                            Content = "🔇", // Bocina con X (muted)
+                            Foreground = Brushes.White,
+                            ToolTip = "Click to unmute audio",
+                            Focusable = false, // Evitar que robe el foco del video
+                            IsTabStop = false  // Excluir de navegación por teclado
+                        };
+                        cameraView.AudioButton = audioButton; // Guardar referencia al botón
+                        cameraView.IdleOverlay = idleOverlay;
+
+                        // Evento click para toggle audio
+                        audioButton.Click += (s, e) => ToggleAudio(cameraView, audioButton);
+                        buttonStrip.Children.Add(audioButton);
 
                         // Overlay transparente para iniciar el arrastre de la cámara activa.
                         // Se usa un overlay en vez del VideoView directamente porque el control de
                         // video puede no propagar los eventos de mouse de WPF de forma confiable.
+                        // NOTA: este overlay SÍ queda superpuesto al video (fila 1) porque el
+                        // arrastre tiene que iniciar tocando el video mismo — no se puede sacar de
+                        // ahí como se hizo con los botones. Si se reporta que arrastrar un panel con
+                        // video real activo deja de funcionar, es la misma causa que lo de arriba;
+                        // no tiene la misma solución fácil (reubicar) porque la interacción requiere
+                        // tocar el video.
                         var dragOverlay = new Border
                         {
                             Background = Brushes.Transparent,
@@ -691,6 +715,7 @@ namespace CameraViewer
                         };
                         dragOverlay.PreviewMouseLeftButtonDown += VideoPanel_PreviewMouseLeftButtonDown;
                         dragOverlay.PreviewMouseMove += VideoPanel_PreviewMouseMove;
+                        Grid.SetRow(dragOverlay, 1);
                         Panel.SetZIndex(dragOverlay, 5);
                         cellGrid.Children.Add(dragOverlay);
 
@@ -1027,44 +1052,97 @@ namespace CameraViewer
         /// </summary>
         private void PopOutVideo(CameraView cameraView, Grid cellGrid, VideoView videoView, TextBlock placeholder)
         {
+            // TxtStatus (la barra de estado de la ventana principal) en vez de Console.WriteLine:
+            // la app es WinExe (sin consola adjunta), así que Console.WriteLine no se ve en uso
+            // normal — solo bajo un depurador. TxtStatus SIEMPRE es visible.
+            TxtStatus.Text = $"PopOutVideo: click recibido para '{cameraView.Camera?.Name}'";
+
             if (string.IsNullOrEmpty(cameraView.Camera?.Name))
-                return; // Panel vacío, nada que despegar
+            {
+                TxtStatus.Text = "PopOutVideo: panel vacío, nada que despegar.";
+                return;
+            }
 
             if (_poppedOutWindows.ContainsKey(cameraView))
-                return; // Ya está despegada
-
-            cellGrid.Children.Remove(videoView);
-            placeholder.Visibility = Visibility.Visible;
-
-            var popupWindow = new Window
             {
-                Title = cameraView.Camera.Name,
-                Width = 480,
-                Height = 320,
-                MinWidth = 160,
-                MinHeight = 120,
-                Background = new SolidColorBrush(Color.FromRgb(37, 37, 37)),
-                Content = videoView,
-                Owner = this
-            };
+                TxtStatus.Text = "PopOutVideo: esta cámara ya está despegada.";
+                return;
+            }
 
-            popupWindow.Closing += (s, e) =>
+            try
             {
-                _poppedOutWindows.Remove(cameraView);
+                // Pausar brevemente el MediaPlayer mientras se reparenta el VideoView: con un
+                // stream real en curso, libvlc puede estar escribiendo frames activamente sobre
+                // el handle nativo justo cuando WPF lo destruye/recrea bajo la ventana nueva —
+                // pausar evita una posible carrera entre ambos. IsPlaying evita pausar/reanudar
+                // un MediaPlayer que no estaba reproduciendo (p. ej. aún conectando).
+                bool wasPlaying = cameraView.MediaPlayer.IsPlaying;
+                if (wasPlaying)
+                    cameraView.MediaPlayer.Pause();
 
-                // Si la app se está cerrando (o el layout cambió y esta celda ya no existe),
-                // no hay a dónde volver a anclar el VideoView — simplemente dejar que se cierre.
-                if (_isDisposing)
-                    return;
+                cellGrid.Children.Remove(videoView);
+                placeholder.Visibility = Visibility.Visible;
 
-                popupWindow.Content = null;
-                Panel.SetZIndex(videoView, 0);
-                cellGrid.Children.Add(videoView);
-                placeholder.Visibility = Visibility.Collapsed;
-            };
+                var popupWindow = new Window
+                {
+                    Title = cameraView.Camera.Name,
+                    Width = 480,
+                    Height = 320,
+                    MinWidth = 160,
+                    MinHeight = 120,
+                    Background = new SolidColorBrush(Color.FromRgb(37, 37, 37)),
+                    Content = videoView
+                    // Sin Owner a propósito: una ventana "owned" en Win32/WPF se oculta junto con
+                    // su dueño al minimizarlo (confirmado: con Owner=this, IsWindowVisible daba
+                    // false apenas se minimizaba la ventana principal) — justo lo contrario de lo
+                    // que se pidió (que el video del pop-out siga visible aunque la ventana
+                    // principal esté minimizada). El cierre al salir de la app sigue funcionando
+                    // igual porque CleanupResources() cierra explícitamente cada ventana flotante
+                    // por código (ClosePoppedOutWindows), no depende de la relación Owner.
+                };
 
-            _poppedOutWindows[cameraView] = popupWindow;
-            popupWindow.Show();
+                popupWindow.Closing += (s, e) =>
+                {
+                    _poppedOutWindows.Remove(cameraView);
+
+                    // Si la app se está cerrando (o el layout cambió y esta celda ya no existe),
+                    // no hay a dónde volver a anclar el VideoView — simplemente dejar que se cierre.
+                    if (_isDisposing)
+                        return;
+
+                    try
+                    {
+                        bool wasPlayingOnClose = cameraView.MediaPlayer.IsPlaying;
+                        if (wasPlayingOnClose)
+                            cameraView.MediaPlayer.Pause();
+
+                        popupWindow.Content = null;
+                        Panel.SetZIndex(videoView, 0);
+                        cellGrid.Children.Add(videoView);
+                        placeholder.Visibility = Visibility.Collapsed;
+
+                        if (wasPlayingOnClose)
+                            cameraView.MediaPlayer.Play();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error al volver a anclar el video: {ex.Message}");
+                    }
+                };
+
+                _poppedOutWindows[cameraView] = popupWindow;
+                popupWindow.Show();
+
+                if (wasPlaying)
+                    cameraView.MediaPlayer.Play();
+
+                TxtStatus.Text = "PopOutVideo: ventana flotante mostrada correctamente.";
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al despegar el video: {ex.Message}");
+                MessageBox.Show($"No se pudo despegar el video: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         /// <summary>
