@@ -76,11 +76,7 @@
                             Click="BtnQuality_Click"
                             ToolTip="Toggle stream quality (HD/SD)"/>
                     
-                    <Button x:Name="BtnGlobalAudio" Content="🔇 Audio" 
-                            Width="90" Height="35" Margin="5" 
-                            Click="BtnGlobalAudio_Click"
-                            ToolTip="Toggle audio for all cameras"/>
-                    <TextBlock x:Name="TxtStatus" Text="Ready" VerticalAlignment="Center" 
+                    <TextBlock x:Name="TxtStatus" Text="Ready" VerticalAlignment="Center"
                                Margin="15,0,0,0" Foreground="White" FontSize="14"/>
                 </StackPanel>
                 

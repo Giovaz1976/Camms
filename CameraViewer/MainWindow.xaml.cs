@@ -30,7 +30,6 @@ namespace CameraViewer
         private StreamQuality _globalStreamQuality = StreamQuality.Main; // HD por defecto
         private CameraInfo? _activePtzCamera; // Cámara actualmente controlada por PTZ
         private bool _isDarkTheme = true; // Tema actual (false = normal, true = oscuro). Oscuro por defecto.
-        private bool _globalAudioMuted = true; // Estado global de audio (true = muted por defecto)
         private Point _cameraDragStartPoint; // Para iniciar drag desde la lista de cámaras
         private Point _panelDragStartPoint; // Para iniciar drag desde un panel de video
         private readonly Dictionary<CameraView, Window> _poppedOutWindows = new(); // Cámaras desacopladas a su propia ventana
@@ -1298,63 +1297,6 @@ namespace CameraViewer
             {
                 StartCamera(_cameraViews[i], selectedCameras[i]);
             }
-        }
-        
-        // ==================== GLOBAL AUDIO CONTROL ====================
-        
-        private void BtnGlobalAudio_Click(object sender, RoutedEventArgs e)
-        {
-            // Toggle global audio state
-            _globalAudioMuted = !_globalAudioMuted;
-            
-            // Update global button appearance
-            if (_globalAudioMuted)
-            {
-                BtnGlobalAudio.Content = "🔇 Audio";
-                BtnGlobalAudio.Background = new SolidColorBrush(Color.FromRgb(220, 53, 69)); // Rojo
-                BtnGlobalAudio.ToolTip = "Audio muted - Click to enable audio for all cameras";
-            }
-            else
-            {
-                BtnGlobalAudio.Content = "🔊 Audio";
-                BtnGlobalAudio.Background = new SolidColorBrush(Color.FromRgb(39, 174, 96)); // Verde
-                BtnGlobalAudio.ToolTip = "Audio enabled - Click to mute all cameras";
-            }
-            
-            // Apply to all active camera views
-            int affectedCameras = 0;
-            foreach (var cameraView in _cameraViews)
-            {
-                if (cameraView.MediaPlayer != null && cameraView.Camera != null && !string.IsNullOrEmpty(cameraView.Camera.Name))
-                {
-                    cameraView.IsMuted = _globalAudioMuted;
-                    cameraView.MediaPlayer.Mute = _globalAudioMuted;
-                    
-                    // Update individual button appearance
-                    if (cameraView.AudioButton != null)
-                    {
-                        if (_globalAudioMuted)
-                        {
-                            cameraView.AudioButton.Background = new SolidColorBrush(Color.FromArgb(180, 220, 53, 69));
-                            cameraView.AudioButton.Content = "🔇";
-                            cameraView.AudioButton.ToolTip = "Click to unmute audio";
-                        }
-                        else
-                        {
-                            cameraView.AudioButton.Background = new SolidColorBrush(Color.FromArgb(180, 39, 174, 96));
-                            cameraView.AudioButton.Content = "🔊";
-                            cameraView.AudioButton.ToolTip = "Click to mute audio";
-                        }
-                    }
-                    affectedCameras++;
-                }
-            }
-            
-            TxtStatus.Text = _globalAudioMuted 
-                ? $"Audio muted for {affectedCameras} camera(s)" 
-                : $"Audio enabled for {affectedCameras} camera(s)";
-            
-            Console.WriteLine($"Global audio {(_globalAudioMuted ? "muted" : "enabled")} for {affectedCameras} camera(s)");
         }
         
         // ==================== VIDEO RECORDING ====================
