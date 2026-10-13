@@ -264,6 +264,58 @@ achicar hasta desaparecer.
   `MinWidth="150"` de la `ColumnDefinition` evita que el ancho llegue a 0 aunque se le asigne
   `GridLength(0)`. Se restaura a 150 al volver a mostrar.
 
+## Diagnóstico de PTZ ("el control de PTZ no funciona")
+
+`Services/OnvifPtzService.cs` prueba, para cada comando, una lista de 8-9 URLs candidatas
+(combinaciones de puerto/path comunes entre fabricantes — V380 usa `:8899`, otras `:10080`,
+`:80`, etc.) porque no hay forma de saber de antemano cuál usa una cámara dada ("ingeniería
+inversa", igual que V380 — ver sección inicial del SKILL). El botón **"🔧 Test PTZ"** (dentro del
+panel PTZ, visible solo con una cámara seleccionada) ya hace un auto-diagnóstico — úsalo primero
+antes de reportar "no funciona" sin más detalle.
+
+- **Dos bugs reales encontrados y corregidos en esta sesión** (no hipótesis — reproducidos y
+  verificados con un servidor HTTP local simulando una cámara ONVIF, ver más abajo):
+  1. **El diálogo de `BtnTestPtz_Click` mostraba `\n` literal en vez de saltos de línea** (usaba
+     `\\n` dentro de un string normal de C#, no verbatim — produce backslash+n literal, no un
+     salto de línea real). Corregido a `\n` simple.
+  2. **Cada comando PTZ —incluido mantener presionada una flecha de movimiento— volvía a probar
+     las ~9 URLs candidatas desde cero**, sin recordar cuál funcionó la vez anterior. Con el
+     `HttpClient.Timeout` original de 5s, esto significaba hasta ~45s solo para encontrar el
+     endpoint correcto, **en cada pulsación**. Reproducido con una IP inalcanzable de prueba: el
+     botón "Test PTZ" completo (que hace ProfileToken + 2 movimientos + 2 stops) tardó **~165
+     segundos** en reportar el fallo — tiempo más que suficiente para que cualquier usuario
+     concluya "no funciona" y abandone antes de que aparezca el resultado.
+  - **Fix**: `OnvifPtzService` ahora guarda, por IP de cámara, qué endpoint respondió bien la
+    última vez (`_knownPtzEndpoints` para comandos de movimiento, `_knownProfileEndpoints` para
+    `GetProfileToken` — por separado porque algunas cámaras los sirven en puertos distintos) y lo
+    prueba primero en la siguiente llamada. Si ese endpoint cacheado deja de responder (cámara
+    reiniciada, etc.), simplemente cae al resto de la lista como antes y el caché se actualiza
+    solo. También se bajó `HttpClient.Timeout` de 5s a 2s (suficiente para LAN; 5s solo ayudaba a
+    conexiones lentas que no son el caso típico acá) y se quitó una URL duplicada en la lista de
+    `SendPtzCommandAsync` (`:8889/onvif/ptz_service` aparecía dos veces).
+  - **Verificado con servidor mock** (`HttpListener` en `127.0.0.1:8899` respondiendo 200 OK solo
+    en `/onvif/ptz_service` y `/onvif/device_service`, apuntando una "cámara" de prueba ahí): el
+    flujo completo (GetProfileToken → MoveAsync Right → StopAsync → MoveAsync Left → StopAsync)
+    corre en ~2 segundos y el diálogo "PTZ Test - Success" muestra el detalle correctamente
+    formateado. Esto confirma que el *código* del pipeline PTZ (SOAP, auth, parsing de respuesta,
+    UI) funciona correctamente cuando la cámara efectivamente expone esos endpoints — si el
+    problema del usuario persiste con su cámara real, es casi seguro un problema de **compatibilidad
+    de protocolo con esa cámara puntual** (puerto/path distinto a los 8-9 adivinados, auth Digest
+    en vez de Basic que es lo único que soporta el código actual, o la cámara realmente no expone
+    PTZ por ONVIF), no un bug genérico de la app — para eso sirve el detalle que ahora muestra
+    "Test PTZ": decir EXACTAMENTE qué pasó en cada endpoint (401, SOAP fault con el mensaje, o
+    timeout) en vez de un genérico "no funciona".
+- **`LastAttemptLog` (`OnvifPtzService`)**: lista de líneas resumen (no los dumps crudos de XML,
+  esos solo van a `Console.WriteLine`) que se llena vía el helper privado `Log(...)`. El llamador
+  debe invocar `ClearLog()` antes de una nueva secuencia de prueba. `BtnTestPtz_Click` ya lo hace y
+  concatena `LastAttemptLog` dentro del `MessageBox` de resultado (éxito o fallo).
+- **Lección repetida en este proyecto**: `CameraViewer.csproj` es `OutputType=WinExe` → **no hay
+  consola adjunta en uso normal**. `Console.WriteLine` (usado profusamente en
+  `OnvifPtzService`/`V380Discovery`/etc.) solo es visible bajo un depurador adjunto (Visual Studio
+  F5, Output window). Para cualquier diagnóstico que el usuario deba poder ver sin eso, usar
+  `TxtStatus.Text` o un `MessageBox` con el detalle armado explícitamente (como `LastAttemptLog`
+  arriba) — ya pasó esto mismo con el botón de pop-out de video, ver esa sección.
+
 ## Cierre de la aplicación (liberar conexiones a las cámaras)
 
 `MainWindow.xaml.cs` centraliza todo el apagado en **`CleanupResources()`**, invocado tanto desde

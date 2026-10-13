@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -13,11 +14,41 @@ namespace CameraViewer.Services
         private readonly HttpClient _httpClient;
         private string _profileToken = "profile_1"; // Token por defecto
 
+        /// <summary>
+        /// Resumen legible (un endpoint probado por línea: éxito, SOAP fault, 401, excepción) del
+        /// último intento. CameraViewer.exe es WinExe (sin consola adjunta) — Console.WriteLine
+        /// solo se ve bajo un depurador adjunto, así que esto es lo único que el usuario puede
+        /// revisar en uso normal. Lo llena Log(); el llamador debe limpiarlo con ClearLog() antes
+        /// de una nueva secuencia de prueba (p. ej. BtnTestPtz_Click en MainWindow).
+        /// </summary>
+        public List<string> LastAttemptLog { get; } = new();
+
+        public void ClearLog() => LastAttemptLog.Clear();
+
+        private void Log(string message)
+        {
+            Console.WriteLine(message);
+            LastAttemptLog.Add(message);
+        }
+
+        // Recuerda, por IP de cámara, qué URL de endpoint respondió bien la última vez (PTZ y
+        // GetProfiles por separado, porque algunas cámaras los separan en puertos distintos). Sin
+        // esto, cada comando PTZ —incluido mantener presionada una flecha— vuelve a probar las 9
+        // URLs candidatas desde cero, una por una con 5s de timeout cada una: hasta 45s solo para
+        // encontrar el endpoint correcto, en CADA pulsación. Confirmado con una cámara inalcanzable
+        // de prueba: el botón "Test PTZ" tardó ~165s en reportar el fallo. Con el endpoint ya
+        // conocido, los comandos siguientes son prácticamente instantáneos (un solo POST).
+        private readonly Dictionary<string, string> _knownPtzEndpoints = new();
+        private readonly Dictionary<string, string> _knownProfileEndpoints = new();
+
         public OnvifPtzService()
         {
             _httpClient = new HttpClient
             {
-                Timeout = TimeSpan.FromSeconds(5)
+                // 5s por intento era demasiado para una LAN: una cámara que sí escucha en un puerto
+                // responde en milisegundos, así que no hace falta esperar tanto para descartar un
+                // puerto equivocado. 2s sigue siendo generoso para red local.
+                Timeout = TimeSpan.FromSeconds(2)
             };
         }
 
@@ -109,7 +140,7 @@ namespace CameraViewer.Services
         private async Task<bool> SendPtzCommandAsync(string cameraIp, string username, string password, string soapRequest)
         {
             // Lista de endpoints comunes para PTZ ONVIF
-            var endpoints = new[]
+            var endpoints = new List<string>
             {
                 $"http://{cameraIp}:8899/onvif/ptz_service",      // V380 usa puerto 8899
                 $"http://{cameraIp}:8899/onvif/device_service",
@@ -118,73 +149,78 @@ namespace CameraViewer.Services
                 $"http://{cameraIp}:10080/onvif/device_service",
                 $"http://{cameraIp}/onvif/ptz_service",
                 $"http://{cameraIp}/onvif/device_service",
-                $"http://{cameraIp}:8889/onvif/ptz_service",
                 $"http://{cameraIp}:8889/onvif/ptz_service"
             };
+
+            // Si ya sabemos qué endpoint funcionó la última vez para esta cámara, probarlo primero
+            // — evita recorrer la lista completa en cada comando (ver comentario del diccionario).
+            if (_knownPtzEndpoints.TryGetValue(cameraIp, out var knownEndpoint) && endpoints.Remove(knownEndpoint))
+            {
+                endpoints.Insert(0, knownEndpoint);
+            }
 
             foreach (var url in endpoints)
             {
                 try
                 {
-                    Console.WriteLine($"Trying PTZ endpoint: {url}");
-                    
                     var content = new StringContent(soapRequest, Encoding.UTF8, "application/soap+xml");
-                    
+
                     // Limpiar headers anteriores
                     _httpClient.DefaultRequestHeaders.Authorization = null;
-                    
+
                     // Agregar autenticación básica si se proporciona
                     if (!string.IsNullOrEmpty(username))
                     {
                         var authValue = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"));
-                        _httpClient.DefaultRequestHeaders.Authorization = 
+                        _httpClient.DefaultRequestHeaders.Authorization =
                             new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
                     }
 
                     var response = await _httpClient.PostAsync(url, content);
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    
-                    Console.WriteLine($"PTZ Response Status: {response.StatusCode}");
+
+                    // El dump crudo de la respuesta solo va a Console (puede ser SOAP XML largo);
+                    // el resumen de la línea siguiente sí va al log visible para el usuario.
+                    Console.WriteLine($"PTZ Response Status [{url}]: {response.StatusCode}");
                     Console.WriteLine($"PTZ Response: {responseContent[..Math.Min(1000, responseContent.Length)]}");
-                    
+
                     // Verificar si hay errores SOAP dentro de la respuesta
                     bool hasSoapFault = responseContent.Contains("Fault") || responseContent.Contains("faultcode");
-                    
+
                     if (response.IsSuccessStatusCode && !hasSoapFault)
                     {
-                        Console.WriteLine($"✓ PTZ command sent successfully to {url}");
+                        _knownPtzEndpoints[cameraIp] = url;
+                        Log($"✓ PTZ command sent successfully to {url}");
                         return true;
                     }
                     else if (hasSoapFault)
                     {
-                        Console.WriteLine($"✗ SOAP Fault detected in response");
                         // Extraer mensaje de error si existe
                         var faultMatch = System.Text.RegularExpressions.Regex.Match(responseContent, @"<.*?faultstring.*?>(.*?)</.*?faultstring>");
-                        if (faultMatch.Success)
-                        {
-                            Console.WriteLine($"   Error: {faultMatch.Groups[1].Value}");
-                        }
+                        Log(faultMatch.Success
+                            ? $"✗ SOAP Fault from {url}: {faultMatch.Groups[1].Value}"
+                            : $"✗ SOAP Fault from {url} (sin faultstring)");
                         continue;
                     }
                     else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                     {
-                        Console.WriteLine($"✗ Authentication failed for {url}");
+                        Log($"✗ Authentication failed (401) for {url}");
                         continue; // Probar siguiente endpoint
                     }
                     else
                     {
-                        Console.WriteLine($"✗ PTZ command failed: {response.StatusCode}");
+                        Log($"✗ PTZ command failed for {url}: {response.StatusCode}");
                         // Continuar probando otros endpoints
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"✗ PTZ HTTP error for {url}: {ex.Message}");
+                    Log($"✗ PTZ HTTP error for {url}: {ex.Message}");
                     continue; // Probar siguiente endpoint
                 }
             }
-            
-            Console.WriteLine("✗ All PTZ endpoints failed");
+
+            Log("✗ All PTZ endpoints failed");
             return false;
         }
 
@@ -248,13 +284,19 @@ namespace CameraViewer.Services
 </soap:Envelope>";
 
             // Probar múltiples puertos ONVIF comunes
-            var endpoints = new[]
+            var endpoints = new List<string>
             {
                 $"http://{cameraIp}:8899/onvif/device_service",   // V380
                 $"http://{cameraIp}:10080/onvif/device_service",  // Otras cámaras
                 $"http://{cameraIp}:80/onvif/device_service",     // Puerto estándar
                 $"http://{cameraIp}:8080/onvif/device_service"    // Alternativo
             };
+
+            // Igual que en SendPtzCommandAsync: probar primero el endpoint que ya funcionó antes
+            if (_knownProfileEndpoints.TryGetValue(cameraIp, out var knownProfileEndpoint) && endpoints.Remove(knownProfileEndpoint))
+            {
+                endpoints.Insert(0, knownProfileEndpoint);
+            }
 
             foreach (var url in endpoints)
             {
@@ -274,29 +316,41 @@ namespace CameraViewer.Services
 
                     var response = await _httpClient.PostAsync(url, content);
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    
+
+                    // El dump crudo va solo a Console; el resumen de abajo sí es visible al usuario.
+                    Console.WriteLine($"GetProfiles Response [{url}]: {responseContent[..Math.Min(500, responseContent.Length)]}");
+
                     if (response.IsSuccessStatusCode)
                     {
-                        Console.WriteLine($"GetProfiles Response: {responseContent[..Math.Min(500, responseContent.Length)]}");
-                        
                         // Buscar ProfileToken en la respuesta
                         var tokenMatch = System.Text.RegularExpressions.Regex.Match(responseContent, @"<.*?:?Profiles.*?token=""([^""]+)""");
                         if (tokenMatch.Success)
                         {
                             var token = tokenMatch.Groups[1].Value;
-                            Console.WriteLine($"✓ Found ProfileToken: {token} (from {url})");
+                            _knownProfileEndpoints[cameraIp] = url;
+                            Log($"✓ Found ProfileToken: {token} (from {url})");
                             return token;
                         }
+
+                        Log($"⚠ {url} respondió {response.StatusCode} pero no se encontró ProfileToken en el XML (formato no reconocido)");
+                    }
+                    else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        Log($"✗ Authentication failed (401) for {url}");
+                    }
+                    else
+                    {
+                        Log($"✗ GetProfiles failed for {url}: {response.StatusCode}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"GetProfileToken failed for {url}: {ex.Message}");
+                    Log($"✗ GetProfileToken failed for {url}: {ex.Message}");
                     continue; // Probar siguiente endpoint
                 }
             }
-            
-            Console.WriteLine("✗ Could not get ProfileToken from any endpoint");
+
+            Log("✗ Could not get ProfileToken from any endpoint");
             return null;
         }
         

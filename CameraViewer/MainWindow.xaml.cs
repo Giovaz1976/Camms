@@ -2309,7 +2309,8 @@ namespace CameraViewer
             
             TxtStatus.Text = "Testing PTZ... Please wait";
             BtnTestPtz.IsEnabled = false;
-            
+            _ptzService.ClearLog();
+
             try
             {
                 Console.WriteLine($"\n========== PTZ TEST START ==========");
@@ -2350,15 +2351,22 @@ namespace CameraViewer
                 Console.WriteLine($"Test 2 (Left): {(success2 ? "✓ SUCCESS" : "✗ FAILED")}");
                 Console.WriteLine($"==================================\n");
                 
+                // CameraViewer.exe es WinExe (sin consola adjunta): Console.WriteLine no se ve en
+                // uso normal, solo bajo un depurador. _ptzService.LastAttemptLog sí es visible acá.
+                string attemptDetails = _ptzService.LastAttemptLog.Count > 0
+                    ? string.Join("\n", _ptzService.LastAttemptLog)
+                    : "(sin detalle — no se probó ningún endpoint)";
+
                 if (success1 || success2)
                 {
                     MessageBox.Show(
-                        $"PTZ Test Results:\\n\\n" +
-                        $"Camera: {_activePtzCamera.Name}\\n" +
-                        $"IP: {_activePtzCamera.IpAddress}\\n\\n" +
-                        $"Move Right: {(success1 ? "✓ SUCCESS" : "✗ FAILED")}\\n" +
-                        $"Move Left: {(success2 ? "✓ SUCCESS" : "✗ FAILED")}\\n\\n" +
-                        $"PTZ is working! Check Debug output for details.",
+                        $"PTZ Test Results:\n\n" +
+                        $"Camera: {_activePtzCamera.Name}\n" +
+                        $"IP: {_activePtzCamera.IpAddress}\n\n" +
+                        $"Move Right: {(success1 ? "✓ SUCCESS" : "✗ FAILED")}\n" +
+                        $"Move Left: {(success2 ? "✓ SUCCESS" : "✗ FAILED")}\n\n" +
+                        $"PTZ is working!\n\n" +
+                        $"Detalle:\n{attemptDetails}",
                         "PTZ Test - Success",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information
@@ -2368,22 +2376,18 @@ namespace CameraViewer
                 else
                 {
                     var result = MessageBox.Show(
-                        $"PTZ Test Failed\\n\\n" +
-                        $"Camera: {_activePtzCamera.Name}\\n" +
-                        $"IP: {_activePtzCamera.IpAddress}\\n" +
-                        $"Credentials: {_activePtzCamera.Username} / {(string.IsNullOrEmpty(_activePtzCamera.Password) ? "(empty)" : "***")}\\n\\n" +
-                        $"Possible reasons:\\n" +
-                        $"• Camera doesn't support PTZ\\n" +
-                        $"• Wrong credentials (401 Unauthorized)\\n" +
-                        $"• PTZ not enabled in camera settings\\n" +
-                        $"• ONVIF not properly configured\\n\\n" +
-                        $"Do you want to configure credentials?\\n" +
+                        $"PTZ Test Failed\n\n" +
+                        $"Camera: {_activePtzCamera.Name}\n" +
+                        $"IP: {_activePtzCamera.IpAddress}\n" +
+                        $"Credentials: {_activePtzCamera.Username} / {(string.IsNullOrEmpty(_activePtzCamera.Password) ? "(empty)" : "***")}\n\n" +
+                        $"Detalle de cada endpoint probado:\n{attemptDetails}\n\n" +
+                        $"Do you want to configure credentials?\n" +
                         $"(Right-click PTZ button to configure)",
                         "PTZ Test - Failed",
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Warning
                     );
-                    
+
                     if (result == MessageBoxResult.Yes)
                     {
                         ConfigurePtzCredentials();
