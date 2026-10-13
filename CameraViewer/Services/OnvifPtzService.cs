@@ -41,6 +41,17 @@ namespace CameraViewer.Services
         private readonly Dictionary<string, string> _knownPtzEndpoints = new();
         private readonly Dictionary<string, string> _knownProfileEndpoints = new();
 
+        // Cámaras para las que ya se confirmó que ContinuousMove falla en los 8 candidatos.
+        // Medido con un servidor de prueba local: cuando ninguno de los candidatos "equivocados"
+        // devuelve ECONNREFUSED rápido (pasó en este entorno — Windows/loopback se quedó esperando
+        // el timeout completo en vez de rechazar al instante), agotar los 8 candidatos de
+        // ContinuousMove puede tardar ~10s (5 candidatos × 2s de timeout). Sin este caché, ESE
+        // costo se pagaría de nuevo en cada pulsación de flecha para una cámara que nunca va a
+        // soportar ContinuousMove — contraproducente justo para el problema que se quería arreglar
+        // (ver sección "Diagnóstico de PTZ" del SKILL). Con el caché, el costo se paga una sola vez
+        // por cámara por sesión; las pulsaciones siguientes van directo a RelativeMove.
+        private readonly HashSet<string> _continuousMoveUnsupported = new();
+
         public OnvifPtzService()
         {
             _httpClient = new HttpClient
@@ -55,18 +66,45 @@ namespace CameraViewer.Services
         /// <summary>
         /// Mueve la cámara en dirección especificada
         /// </summary>
-        public async Task<bool> MoveAsync(string cameraIp, string username, string password, 
+        public async Task<bool> MoveAsync(string cameraIp, string username, string password,
             float panSpeed, float tiltSpeed, float zoomSpeed, string? profileToken = null)
         {
             try
             {
                 // Usar el ProfileToken proporcionado o el por defecto
                 var token = profileToken ?? _profileToken;
-                
-                // Intentar primero con RelativeMove
-                var soapRequest = BuildContinuousMoveRequest(panSpeed, tiltSpeed, zoomSpeed, token);
-                var success = await SendPtzCommandAsync(cameraIp, username, password, soapRequest);
-                
+
+                // ContinuousMove es el comando correcto para una UI de "mantener presionado para
+                // mover, soltar para detener" (como los botones de flecha del panel PTZ): la
+                // cámara se mueve a la velocidad indicada hasta que llega un Stop. RelativeMove, en
+                // cambio, es un movimiento de una sola vez por una cantidad fija — no tiene sentido
+                // "sostenerlo" ni combina bien con un Stop inmediato al soltar el botón (el Stop
+                // puede llegar antes de que el movimiento relativo termine de ejecutarse). Se
+                // prueba primero porque es lo semánticamente correcto — pero solo si no se sabe ya
+                // que esta cámara no lo soporta (ver _continuousMoveUnsupported): agotar los 8
+                // candidatos de ContinuousMove en una cámara que nunca lo soporta puede tardar
+                // varios segundos, y eso no hay que pagarlo en cada pulsación.
+                bool success = false;
+
+                if (!_continuousMoveUnsupported.Contains(cameraIp))
+                {
+                    var continuousRequest = BuildContinuousVelocityMoveRequest(panSpeed, tiltSpeed, zoomSpeed, token);
+                    success = await SendPtzCommandAsync(cameraIp, username, password, continuousRequest);
+
+                    if (!success)
+                    {
+                        Console.WriteLine($"ContinuousMove not supported by {cameraIp}, won't retry it this session — falling back to RelativeMove");
+                        _continuousMoveUnsupported.Add(cameraIp);
+                    }
+                }
+
+                var soapRequest = string.Empty;
+                if (!success)
+                {
+                    soapRequest = BuildRelativeMoveRequest(panSpeed, tiltSpeed, zoomSpeed, token);
+                    success = await SendPtzCommandAsync(cameraIp, username, password, soapRequest);
+                }
+
                 // Si falla, intentar con AbsoluteMove
                 if (!success)
                 {
@@ -74,7 +112,7 @@ namespace CameraViewer.Services
                     soapRequest = BuildAbsoluteMoveRequest(panSpeed, tiltSpeed, zoomSpeed, token);
                     success = await SendPtzCommandAsync(cameraIp, username, password, soapRequest);
                 }
-                
+
                 return success;
             }
             catch (Exception ex)
@@ -83,7 +121,23 @@ namespace CameraViewer.Services
                 return false;
             }
         }
-        
+
+        private string BuildContinuousVelocityMoveRequest(float panSpeed, float tiltSpeed, float zoomSpeed, string profileToken)
+        {
+            return $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<s:Envelope xmlns:s=""http://www.w3.org/2003/05/soap-envelope"" xmlns:tptz=""http://www.onvif.org/ver20/ptz/wsdl"" xmlns:tt=""http://www.onvif.org/ver10/schema"">
+    <s:Body>
+        <tptz:ContinuousMove>
+            <tptz:ProfileToken>{profileToken}</tptz:ProfileToken>
+            <tptz:Velocity>
+                <tt:PanTilt x=""{panSpeed:F1}"" y=""{tiltSpeed:F1}"" space=""http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace""/>
+                <tt:Zoom x=""{zoomSpeed:F1}"" space=""http://www.onvif.org/ver10/tptz/ZoomSpaces/VelocityGenericSpace""/>
+            </tptz:Velocity>
+        </tptz:ContinuousMove>
+    </s:Body>
+</s:Envelope>";
+        }
+
         private string BuildAbsoluteMoveRequest(float pan, float tilt, float zoom, string profileToken)
         {
             // AbsoluteMove con espacios de coordenadas
@@ -224,7 +278,7 @@ namespace CameraViewer.Services
             return false;
         }
 
-        private string BuildContinuousMoveRequest(float panSpeed, float tiltSpeed, float zoomSpeed, string profileToken)
+        private string BuildRelativeMoveRequest(float panSpeed, float tiltSpeed, float zoomSpeed, string profileToken)
         {
             // RelativeMove con espacios de coordenadas según ODM
             return $@"<?xml version=""1.0"" encoding=""UTF-8""?>

@@ -2249,10 +2249,13 @@ namespace CameraViewer
         
         private async void BtnPtz_MouseUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            // Detener movimiento PTZ
+            // Detener movimiento PTZ. Importante pasar _cachedProfileToken (el token real de la
+            // cámara, p. ej. "PROFILE_000") igual que SendPtzCommand se lo pasa a MoveAsync — antes
+            // se omitía acá y StopAsync caía al default genérico "profile_1", que no es el token
+            // real de la cámara del usuario.
             if (_activePtzCamera != null)
             {
-                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password);
+                await _ptzService.StopAsync(_activePtzCamera.IpAddress, _activePtzCamera.Username, _activePtzCamera.Password, _cachedProfileToken);
             }
         }
         

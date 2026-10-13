@@ -427,3 +427,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# AI coding assistant local state/config (no forman parte de la solución)
+.claude/
+.devin/
