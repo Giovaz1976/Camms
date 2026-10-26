@@ -11,6 +11,7 @@ namespace CameraViewer.Configuration
         public PtzSettings PTZ { get; set; } = new();
         public UISettings UI { get; set; } = new();
         public NetworkSettings Network { get; set; } = new();
+        public AudioSettings Audio { get; set; } = new();
     }
 
     /// <summary>

@@ -65,6 +65,7 @@ namespace CameraViewer
             services.AddSingleton(appSettings.PTZ);
             services.AddSingleton(appSettings.UI);
             services.AddSingleton(appSettings.Network);
+            services.AddSingleton(appSettings.Audio);
 
             // ===== Logging =====
             services.AddSingleton<ILogger>(sp => new DebugLogger("[ONVIF]"));
@@ -78,6 +79,11 @@ namespace CameraViewer
             // ===== Parsing =====
             services.AddSingleton<IOnvifMessageBuilder, OnvifSoapMessageBuilder>();
             services.AddSingleton<IOnvifResponseParser, OnvifResponseParser>();
+            services.AddSingleton<ISdpParser, SdpParser>();
+
+            // ===== Audio (two-way / backchannel) =====
+            services.AddSingleton<IRtspAuthenticator, RtspDigestAuthenticator>();
+            services.AddSingleton<TwoWayAudioService>();
 
             // ===== Configuration =====
             // IOnvifDiscoveryConfiguration now uses OnvifDiscoverySettings from appsettings.json

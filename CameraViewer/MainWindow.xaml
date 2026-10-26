@@ -282,11 +282,17 @@
                                    Foreground="#BDC3C7" HorizontalAlignment="Center"/>
                         
                         <!-- Test PTZ Button -->
-                        <Button x:Name="BtnTestPtz" Content="🔧 Test PTZ" 
+                        <Button x:Name="BtnTestPtz" Content="🔧 Test PTZ"
                                 Height="30" Margin="0,10,0,5"
                                 FontSize="11"
                                 Click="BtnTestPtz_Click" ToolTip="Test if camera supports PTZ"/>
-                        
+
+                        <!-- Test Two-Way Audio Button -->
+                        <Button x:Name="BtnTestAudio" Content="🎤 Test Audio"
+                                Height="30" Margin="0,0,0,5"
+                                FontSize="11"
+                                Click="BtnTestAudio_Click" ToolTip="Test if camera supports two-way audio (backchannel)"/>
+
                         <!-- Debug PTZ Button -->
                         <Button x:Name="BtnDebugPtz" Content="🐛 Show SOAP" 
                                 Height="25" Margin="0,0,0,5"

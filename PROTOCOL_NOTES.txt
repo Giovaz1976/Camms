@@ -104,6 +104,57 @@ longitudes de payload, sugiriendo diferentes tipos de respuesta o información.
 - Protocolo: Propietario, no documentado públicamente
 - Encriptación: Posible en el payload (pendiente de confirmar)
 
+=== ACTUALIZACIÓN 24-oct-2026: canal TCP real encontrado (puerto 8089, NO 32108) ===
+
+Reanalizado el mismo archivo PCAP24_feb_22_33_52.pcap (captura completa del teléfono con
+PCAPdroid, 9704 paquetes) con un parser propio sin dependencias (`analyze_pcap.py` en la raíz
+del repo — no requiere tshark/scapy, solo stdlib). Esta vez buscando TODO el tráfico hacia
+192.168.1.81, no solo el puerto 32108.
+
+HALLAZGO CLAVE: el canal real de audio/video/control es **TCP 192.168.1.81:8089**, no el puerto
+32108 que V380Connection.cs asumía sin confirmar (32108 solo se usa para UDP discovery). En esta
+captura esa sesión TCP tiene ~460 paquetes / ~400KB en ~24 segundos de uso normal (viendo video,
+sin tocar el botón de intercomunicador).
+
+El mismo header de 16 bytes de discovery (`18 08 03 38` + comando 4B + reserved 4B + payload
+length 4B little-endian) se repite EXACTO dentro de este TCP stream. Reensamblado el stream por
+número de secuencia TCP (no solo por orden de captura) y escaneado por los magic bytes:
+
+  PHONE -> CAM (3872 bytes reensamblados): 31 mensajes encontrados, TODOS con
+    cmd=01 02 02 00  reserved=00 00 00 00   (0 mensajes con otro comando — ¡limpio!)
+    Payload: 80-144 bytes, pinta de alta entropía (probablemente cifrado).
+    Cadencia: ~1 cada 0.3-2s durante toda la ventana → veredicto: HEARTBEAT/keepalive periódico
+    de la sesión, no login (no se observó ningún comando distinto en estos 24s — si hubo login,
+    pasó ANTES de que arrancara esta captura puntual).
+
+  CAM -> PHONE (379866 bytes reensamblados): comando 01 02 00 00 / reserved 00 00 00 00 en los
+    11 primeros mensajes detectados limpio, luego el escaneo lineal se desincroniza (8 veces) —
+    consistente con que el campo payload-length de un mensaje grande (video) no cubre el byte
+    count exacto de cómo se fragmenta/reensambla un frame completo; hace falta lógica de
+    reensamblado específica de video para seguir más allá de eso. No crítico para la investigación
+    de push-to-talk (ver abajo), solo relevante si se quiere decodificar video más adelante.
+    Longitudes de payload vistas: 144, 160, 154, 224, 13786(!), 215, 193, 132, 134, 816... —
+    consistente con frames de video comprimido de tamaño variable (I-frames grandes, P-frames
+    chicos). Candidato fuerte: 01 02 00 00 = frame de video/stream de bajada.
+
+CORRECCIONES a los placeholders de V380Connection.cs (NO APLICADAS AÚN AL CÓDIGO — solo
+documentadas, falta decodificar el payload cifrado antes de poder implementar nada real):
+  - `_camera.Port` apunta a 32108 por defecto (CameraInfo.cs) pero el canal real de
+    audio/video/control es el 8089 — habría que conectar ahí, no a 32108.
+  - `CMD_LOGIN = 0x01`, `CMD_HEARTBEAT = 0x04` (un solo byte) son pura invención: el formato real
+    usa un tag de 4 bytes como comando (ej. `01 02 02 00`), no un solo byte. El heartbeat real
+    parece ser `01 02 02 00`, no `0x04`.
+  - El payload de ambos comandos vistos luce cifrado (alta entropía desde el primer byte) — login
+    con credenciales en claro (lo que BuildLoginPacket hace hoy) casi seguro NO es como funciona
+    esta cámara en realidad.
+
+MÉTODO reutilizable para la próxima captura (push-to-talk): reensamblar cada dirección del TCP
+8089 por número de secuencia, escanear magic bytes `18 08 03 38`, tabular (comando, reserved) →
+cantidad. Con esta baseline ya conocida (PHONE->CAM = solo 01 02 02 00 repetido), cualquier
+comando NUEVO que aparezca en esa dirección durante una captura que incluya presionar el botón de
+intercomunicador es casi con certeza el comando de push-to-talk/audio de subida — no debería hacer
+falta descifrar el payload para encontrar el comando en sí, solo detectar el tag nuevo.
+
 === REFERENCIAS ===
 
 - Captura realizada con PCAPdroid en Android

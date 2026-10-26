@@ -22,6 +22,7 @@ namespace CameraViewer
         private readonly V380Discovery _discovery;
         private readonly OnvifDiscovery _onvifDiscovery;
         private readonly OnvifPtzService _ptzService;
+        private readonly TwoWayAudioService _twoWayAudio;
         private readonly MainViewModel _viewModel;
         private LibVLC? _libVLC;
         private List<CameraView> _cameraViews = new List<CameraView>();
@@ -43,14 +44,16 @@ namespace CameraViewer
             V380Discovery discovery,
             OnvifDiscovery onvifDiscovery,
             OnvifPtzService ptzService,
+            TwoWayAudioService twoWayAudio,
             MainViewModel viewModel)
         {
             InitializeComponent();
-            
+
             // Injected dependencies
             _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
             _onvifDiscovery = onvifDiscovery ?? throw new ArgumentNullException(nameof(onvifDiscovery));
             _ptzService = ptzService ?? throw new ArgumentNullException(nameof(ptzService));
+            _twoWayAudio = twoWayAudio ?? throw new ArgumentNullException(nameof(twoWayAudio));
             _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
             
             // Set DataContext for MVVM binding
@@ -171,6 +174,7 @@ namespace CameraViewer
                 try { _discovery?.Dispose(); } catch (Exception ex) { Console.WriteLine($"Error disposing V380Discovery: {ex.Message}"); }
                 try { _onvifDiscovery?.Dispose(); } catch (Exception ex) { Console.WriteLine($"Error disposing OnvifDiscovery: {ex.Message}"); }
                 try { _ptzService?.Dispose(); } catch (Exception ex) { Console.WriteLine($"Error disposing OnvifPtzService: {ex.Message}"); }
+                try { _twoWayAudio?.Dispose(); } catch (Exception ex) { Console.WriteLine($"Error disposing TwoWayAudioService: {ex.Message}"); }
 
                 Console.WriteLine("All camera connections released, window closed successfully.");
             }
@@ -2408,7 +2412,77 @@ namespace CameraViewer
                 BtnTestPtz.IsEnabled = true;
             }
         }
-        
+
+        /// <summary>
+        /// Probes whether the active PTZ camera advertises ONVIF RTSP backchannel (two-way
+        /// audio). This is a diagnostic gate: push-to-talk is only worth building against a
+        /// camera that actually answers "yes" here - many V380/generic cameras have an intercom
+        /// in their mobile app but only over the proprietary port-32108 protocol, not ONVIF.
+        /// </summary>
+        private async void BtnTestAudio_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activePtzCamera == null)
+            {
+                MessageBox.Show("No active camera selected.", "Two-Way Audio Test", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            TxtStatus.Text = "Testing two-way audio (backchannel)... Please wait";
+            BtnTestAudio.IsEnabled = false;
+            _twoWayAudio.ClearLog();
+
+            try
+            {
+                var capability = await _twoWayAudio.ProbeAsync(_activePtzCamera);
+
+                // CameraViewer.exe es WinExe (sin consola adjunta): Console.WriteLine no se ve
+                // en uso normal. _twoWayAudio.LastAttemptLog sí es visible acá.
+                string attemptDetails = _twoWayAudio.LastAttemptLog.Count > 0
+                    ? string.Join("\n", _twoWayAudio.LastAttemptLog)
+                    : "(sin detalle - no se probó ningún endpoint)";
+
+                if (capability.Supported)
+                {
+                    MessageBox.Show(
+                        $"Two-Way Audio Test Results:\n\n" +
+                        $"Camera: {_activePtzCamera.Name}\n" +
+                        $"IP: {_activePtzCamera.IpAddress}\n\n" +
+                        $"Backchannel: ✓ SUPPORTED\n" +
+                        $"Codec: {capability.Codec} (payload type {capability.PayloadType})\n\n" +
+                        $"Detalle:\n{attemptDetails}",
+                        "Two-Way Audio Test - Supported",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information
+                    );
+                    TxtStatus.Text = "Two-way audio test completed - backchannel supported!";
+                }
+                else
+                {
+                    MessageBox.Show(
+                        $"Two-Way Audio Test Results:\n\n" +
+                        $"Camera: {_activePtzCamera.Name}\n" +
+                        $"IP: {_activePtzCamera.IpAddress}\n\n" +
+                        $"Backchannel: ✗ NOT SUPPORTED\n" +
+                        $"Reason: {capability.Reason}\n\n" +
+                        $"Detalle de cada endpoint probado:\n{attemptDetails}",
+                        "Two-Way Audio Test - Not Supported",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning
+                    );
+                    TxtStatus.Text = "Two-way audio test failed - camera does not advertise backchannel";
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Two-way audio test error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TxtStatus.Text = $"Two-way audio test error: {ex.Message}";
+            }
+            finally
+            {
+                BtnTestAudio.IsEnabled = true;
+            }
+        }
+
         private string? _cachedProfileToken = null;
         
         private async Task SendPtzCommand(float panSpeed, float tiltSpeed, float zoomSpeed)

@@ -96,6 +96,40 @@ File > Export Specified Packets > Save as "login.pcap"
 File > Export Specified Packets > Save as "stream.pcap"
 ```
 
+### 6. Capturar Intercomunicador / Push-to-Talk (audio de subida)
+
+**Objetivo**: Aislar el comando que la app manda a la cámara al presionar el botón de hablar.
+
+**Ya sabemos** (ver `PROTOCOL_NOTES.txt`, actualización 24-oct-2026, sacado de una captura
+anterior con `analyze_pcap.py`): el canal real de audio/video/control de esta cámara es
+**TCP `192.168.1.81:8089`**, NO el puerto 32108 (ese es solo para discovery UDP). En uso normal
+(viendo video, sin tocar el micrófono), el teléfono le manda a la cámara **un único tipo de
+mensaje repetido** (`18 08 03 38` + comando `01 02 02 00`) cada 0.3-2 segundos — es el
+heartbeat/keepalive de la sesión. Esa es la baseline limpia: el comando del botón de
+intercomunicador debería aparecer como un tag **distinto** a `01 02 02 00` en esa misma
+dirección (teléfono → cámara), justo en la ventana donde se presiona el botón.
+
+1. **Conéctate primero a la cámara SIN capturar** (para que login/handshake ya haya pasado y no
+   ensucie la ventana que nos interesa) y deja el video corriendo unos segundos.
+2. **Inicia la captura** en PCAPdroid.
+3. Espera **~5 segundos sin tocar nada** (esto da una ventana "silenciosa" de referencia, con
+   solo los heartbeats `01 02 02 00` de siempre).
+4. **Presiona y mantén** el botón de micrófono/intercomunicador de la app, **di algo en voz alta
+   durante ~5-8 segundos**, y **suelta**.
+5. Espera **~5 segundos más sin tocar nada** (para ver si al soltar se manda algo distinto, tipo
+   un "stop talk").
+6. **Detén la captura.**
+7. **Exportá como `.pcap` clásico, NO `.pcapng`** — en PCAPdroid, al compartir/guardar la captura
+   elegí el formato pcap (si solo da pcapng, abrilo en Wireshark y `File > Save As` eligiendo
+   "Wireshark/tcpdump/... - pcap", no "pcapng") — `analyze_pcap.py` solo lee pcap clásico.
+8. Compartí el archivo (`talk_test.pcap` o como le pongas) para analizarlo con el mismo método:
+   reensamblar el stream TCP 8089 por dirección, tabular (comando, reserved) → cantidad, y
+   comparar contra la baseline de arriba. Cualquier comando nuevo en la dirección
+   teléfono→cámara, sobre todo si aparece justo cuando se presiona/suelta el botón, es el
+   candidato principal.
+
+**No hace falta** editar nada del proyecto para esto — solo la captura y compartir el archivo.
+
 ## 🔍 Análisis de Paquetes
 
 ### Analizar en Wireshark
